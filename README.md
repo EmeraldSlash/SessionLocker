@@ -10,7 +10,7 @@ At the moment, this library provides:
 Future plans:
 - Add support for remote changes (operations that can be remotely applied to locked `DataStore` keys by other game servers)
 - Further decouple the Developer Product stuff from the core library, and make its logic more generic so that similar operations can be performed by users of the library.
-- Add some higher granularity usage options for session locking state machines so that if someone doesn't like one part of one particular state machine they can just rewrite it themselves and reuse the other state machines that they don't care about.
+- Add some higher granularity usage options for the module's state machines so that if someone doesn't like one part of one particular state machine they can just rewrite it themselves and reuse the other state machines that they don't care about.
 - Add some lower granularity usage options so that people who don't want to customize anything can just "plug & play", making like two function calls with barebones work and minimal typechecking to get themselves up and running.
 - Add a low granularity API for waiting until a change has been saved. This API should be a dmeo of the deeper APIs, as this use case can already be achieved with the current API, but it's not good for beginners.
 
