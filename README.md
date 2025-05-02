@@ -13,4 +13,6 @@ Future plans:
 - Allow associating a LockerState (and its DataStore entries) with more than one UserId, and full remove all remaining limitations that force LockerStates to have one-to-one relationships to players.
 
 My approach to designing libraries is different from what most other people seem to do, so if that kind of thing interests you, go read the code. I have also provided some example files which are pretty helpful for understanding the library.
-One thing to note about the design is that it avoids using singletons so that all important inputs can be configured by usage code and so that there are no stupid limitations e.g. about only being able to session lock one DataStore with one configuration.
+Two important things to note about the design of this library:
+- The use of singletons or globals is avoided so that all important inputs can be configured by usage code and so that there are no stupid limitations e.g. about only being able to session lock one DataStore with one configuration.
+- Rather than having lots of complicated threading/coroutine stuff going on (or derived constructs, like Promises), the module is designed to work as an explicit state machine that gets re-evaluated every frame for every player. This is fine: there are no performance problems. Blockingh Roblox API calls are isolated so that they can behave as nice pure functions with no annoying code execution side effects.
