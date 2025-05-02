@@ -8,12 +8,10 @@ At the moment, this library provides:
 - Safe Developer Product processing, product credit, and product purchase history
 
 Future plans:
-- [x] Make it clearer how to use `LockerState.ChangeId_*` fields to know when a particular change has been saved to the DataStore, and provide some more guarantees about it because naive polling of the `LockerState` will not work (should probably create a callback function).
-- [ ] Further decouple the Developer Product stuff from the core library, and make its logic more generic so that similar operations can be performed by users of the library.
-- [x] Allow associating a `LockerState` (specifically the `DataStore` keys it writes) with more than one UserId, and fully remove all remaining limitations that force `LockerState`s to have one-to-one relationships to players.
-- [ ] Add some lower granularity stuff usage options (closer to example code) so that people who don't want to customize anything can just "drag & drop" and can make like two function calls to get themselves up and running.
-- [ ] Increase the granularity of reusability so that if someone doesn't like one part of one particular state machine they can just rewrite it themselves and reuse the other state machines that they don't care about.
-- [ ] Add support for remote changes (operations that can be remotely applied to locked `DataStore` keys by other game servers)
+- Further decouple the Developer Product stuff from the core library, and make its logic more generic so that similar operations can be performed by users of the library.
+- Add some lower granularity usage options so that people who don't want to customize anything can just "drag & drop" and can make like two function calls with barebones work and minimal typechecking to get themselves up and running.
+- Increase the granularity of reusability so that if someone doesn't like one part of one particular state machine they can just rewrite it themselves and reuse the other state machines that they don't care about.
+- Add support for remote changes (operations that can be remotely applied to locked `DataStore` keys by other game servers)
 
 My approach to designing libraries is different from what most other people seem to do, so if that kind of thing interests you, go read the code. I have also provided some example files which are pretty helpful for understanding the library.
 
