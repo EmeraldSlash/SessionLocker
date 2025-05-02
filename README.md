@@ -18,14 +18,18 @@ Future plans:
   - Passing userdata into `LockerSpec` callbacks (e.g. you have a table associated with the `LockerState` that you want to access from within a callback)
   - Getting `LockerState.SaveData` casted into the actual SaveData type defined by the user with minimal friction (and accessing the save data in the first place might be annoyance for some people if they'd like to store it in more convenient place)
 
-Some important things to note about the design of this library:
-- The use of singletons or globals is avoided so that all important inputs can be configured by usage code and so that there are no stupid limitations. Here are some common limitations in Roblox DataStore libraries that I am trying to avoid in SessionLocker:
-  - A library globally refers to `DataStoreService` so the DataStore API can't be mocked
-  - A library only supports a single `DataStore` being used so if you need more then you have to duplicate the library or do it yourself.
-  - A library forcibly binds itself to top-level signals or callbacks, such as `game:BindToClose()` and `Players.PlayerAdded/PlayerRemoving`, meaning usage code has no control over where or when the library does things.
-  - A library does not define or limit how code is executed, so it's often unclear when it's safe or not safe to do things, and one has to write code defensively.
-  - A library couples DataStore logic with client/server replication and specific data modification & change detection approaches, which forces particular code architectures and increases abstraction.
-- I don't like thread/coroutine stuff (or derived constructs like promises) because it's all just a complicated nightmare of code execution, especially for APIs which are very heavy on blocking such as `DataStoreService`. So instead I've designed the library to work using explicit state machines that get re-evaluated every frame for every player. A lot of people are concerned about performance problems when running things every frame, but in this case it's actually fine as the state machines are cheap to evaluate. I believe state machines are easier to isolate and reuse as well. Blocking Roblox API calls are isolated so that they can behave as nice pure functions with no annoying code execution side effects.
+There are some common limitations in Roblox DataStore libraries that I am trying to avoid in SessionLocker:
+- A library globally refers to `DataStoreService` so the DataStore API can't be mocked
+- A library only supports a single `DataStore` being used so if you need more then you have to duplicate the library or do it yourself.
+- A library forcibly binds itself to top-level signals or callbacks, such as `game:BindToClose()` and `Players.PlayerAdded/PlayerRemoving`, meaning usage code has no control over where or when the library does things.
+- A library does not define or limit how code is executed, so it's often unclear when it's safe or not safe to do things, and one has to write code defensively.
+- A library couples DataStore logic with client/server replication and specific data modification & change detection approaches, which forces particular code architectures and increases abstraction.
+
+ To avoid these pitfalls, note these following aspects of the library's design:
+- The use of singletons or globals is avoided so that all inputs can be configured by usage code.
+- All code execution can be controlled by the usage code (except for isolated operations without side effects). But the library can still have _optional_ convenience APIs which execute code on their own, if the user doesn't care.
+- Complicated pipelines are explicitly implemented as state machines so that they can be easily comprehended by humans and turned into isolated reusable units of code. At the moment the library's state machines are reevaluated every frame, which is fine at the moment: there are no performance problems. If necessary the state machines can be reevaluated less frequently. Blocking Roblox API calls are isolated so that they can behave as nice pure functions with no annoying code execution side effects.
+  - This explicit state machine design is a reaction to the common programming style in Roblox that makes heavy use of fibers ("coroutines" / "threads") and derived constructs (like promises). This programming style complicates code execution a lot and makes it hard to guarantee robustness, especially when there are many different sources of input into the implicit state machine as is the case with DataStore systems.
 
 For reading the code, I recommend a tab width of 3 since that's what I wrote it with (and my Luau formatting style depends on tab width). Unfortunately GitHub does not provide this tab widh as an option in their UI, but you can get it for a particular file by appending `?ts=3` to the end of the file's URL.
 
