@@ -12,6 +12,7 @@ Future plans:
 - Add some lower granularity usage options so that people who don't want to customize anything can just "drag & drop" and can make like two function calls with barebones work and minimal typechecking to get themselves up and running.
 - Increase the granularity of reusability so that if someone doesn't like one part of one particular state machine they can just rewrite it themselves and reuse the other state machines that they don't care about.
 - Add support for remote changes (operations that can be remotely applied to locked `DataStore` keys by other game servers)
+- Add some easy APIs for things like making changes and guaranteeing they are saved (this can already achieved with the current API, but it's unintutive and not good for beginners)
 
 My approach to designing libraries is different from what most other people seem to do, so if that kind of thing interests you, go read the code. I have also provided some example files which are pretty helpful for understanding the library.
 
