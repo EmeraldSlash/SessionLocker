@@ -2,11 +2,11 @@
 
 local SessionLocker = require(game.ServerScriptService.SessionLocker)
 local SaveDataMigrators = require(game.ServerScriptService.SaveDataMigrators)
+local DataStoreService = require(game.ServerScriptService.DataStoreService)
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local MarketplaceService = game:GetService("MarketplaceService")
-local DataStoreService = game:GetService("DataStoreService")
 
 local IsStudio = RunService:IsStudio()
 local IsPrivateServer = game.PrivateServerId ~= ""
@@ -101,8 +101,8 @@ local function PlayerAdded(Player)
 	else
 		PS = {} :: PlayerState
 		PS.UserId = UserId
-		PS.SessionLockerState = SessionLocker.SessionCreate(
-			LockerSpec, Player.UserId)
+		PS.SessionLockerState = SessionLocker.LockerCreatePlayer(
+			LockerSpec, Player)
 		do
 			local LSAny = PS.SessionLockerState :: any
 			LSAny.PS = PS
