@@ -26,7 +26,16 @@ For reading the code, I recommend a tab width of 3 since that's what I wrote it 
 ```luau
 --!strict
 
-local SessionLocker = require(...)
+local SessionLocker = require(game.ServerScriptService.SessionLocker)
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local DataStoreService = game:GetService("DataStoreService")
+local MarketplaceService = game:GetService("MarketplaceService")
+
+type SaveData = SessionLocker.SaveData & {
+	Gold: number;
+}
 
 local LockerSpec: SessionLocker.LockerSpec = {
 	DataStore = DataStoreService:GetDataStore("SaveData");
@@ -43,46 +52,52 @@ local LockerSpec: SessionLocker.LockerSpec = {
 			ProductCredit = {};
 			
 			-- Your custom stuff here!
-			Gold: number;
+			Gold = 0;
 		}
 	end;
 }
 
-local Lockers = {}
-local ServerClosing = false
+local State = {
+	Lockers = {} :: {[number]: SessionLocker.LockerState};
+	ServerClosing = false;
+}
 
 game:BindToClose(function()
-	ServerClosing = true
-	while next(Lockers) do task.wait() end
+	State.ServerClosing = true
+	while next(State.Lockers) do task.wait() end
 end)
 
 RunService.Heartbeat:Connect(function()
-  for UserId, Locker in Lockers do
+	local HeartbeatNow = os.clock()
+	
+	for UserId, Locker in State.Lockers do
+		
+		-- Let's give our player one gold for every frame
+		-- they spend in-game!
+		if Locker.LoadStatus == SessionLocker.LoadStatus.loaded then
+			local SaveData = Locker.SaveData :: SaveData
+			SaveData.Gold += 1
+		end
 
-	-- Let's give our player one gold for every frame
-	-- they spend in-game!
-	if Locker.LodStatus == SessionLocker.LoadStatus.loaded then
-		Locker.SaveData.Gold += 1
-	end
-
-	if SessionLocker.UpdateEverything(Locker) then
-		Lockers[UserId] = nil
+		if SessionLocker.UpdateEverything(Locker, HeartbeatNow) then
+			State.Lockers[UserId] = nil
+		end
 	end
 end)
 
 Players.PlayerAdded:Connect(function(Player)
-	if not ServerClosing then
-		if not Lockers[Player.UserId] then
-			Lockers[Player.UserId] = SessionLocker.LockerCreate(
+	if not State.ServerClosing then
+		if not State.Lockers[Player.UserId] then
+			State.Lockers[Player.UserId] = SessionLocker.LockerCreate(
 				LockerSpec, tostring(Player.UserId), {17614882})
 		end
-		local Locker = Lockers[Player.UserId]
+		local Locker = State.Lockers[Player.UserId]
 		SessionLocker.MarkShouldAcquire(Locker)
 	end
 end)
 
 Players.PlayerRemoving:Connect(function(Player)
-	local Locker = Lockers[Player.UserId]
+	local Locker = State.Lockers[Player.UserId]
 	if Locker then
 		SessionLocker.MarkShouldRelease(Locker)
 	end
@@ -92,7 +107,8 @@ local ProductProcessFunctions: {[number]: SessionLocker.ProductProcessFunction} 
 	[12345678] = function(Op: number, Locker: SessionLocker.LockerState)
 		if Op == SessionLocker.ProductProcessOp.apply then
 			-- Give the player 10 gold when they purchase the product.
-			Locker.SaveData.Gold += 10
+			local SaveData = Locker.SaveData :: SaveData
+			SaveData.Gold += 10
 		end
 		return true
 	end;
@@ -105,7 +121,7 @@ MarketplaceService.ProcessReceipt = function(
 	local Result = Enum.ProductPurchaseDecision.NotProcessedYet
 	
 	local PF = ProductProcessFunctions[ReceiptInfo.ProductId]
-	local Locker = Lockers[ReceiptInfo.PlayerId]
+	local Locker = State.Lockers[ReceiptInfo.PlayerId]
 	if PF and Locker then
 
 		if SessionLocker.YieldUntilProductIsProcessedAndSaved(
