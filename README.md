@@ -65,8 +65,8 @@ RunService.Heartbeat:Connect(function()
 		Locker.SaveData.Gold += 1
 	end
 
-    if SessionLocker.UpdateEverything(Locker) then
-      Lockers[UserId] = nil
+	if SessionLocker.UpdateEverything(Locker) then
+	Lockers[UserId] = nil
     end
 end)
 
