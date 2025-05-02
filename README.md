@@ -91,6 +91,7 @@ end
 local ProductProcessFunctions: {[number]: SessionLocker.ProductProcessFunction} = {
 	[12345678] = function(Op: number, Locker: SessionLocker.LockerState)
 		if Op == SessionLocker.ProductProcessOp.apply then
+			-- Give the player 10 gold when they purchase the product.
 			Locker.SaveData.Gold += 10
 		end
 		return true
