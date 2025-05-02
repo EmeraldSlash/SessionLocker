@@ -1,6 +1,6 @@
 # SessionLocker
 
-This is a reusable library for using DataStore session locking in Roblox. The system design been used in production code, but this particular library is currently untested as I have only just just extracted it out into a reusable library for use in an upcoming project. I will update this repository when it is functioning.
+This is a reusable library for using DataStore session locking in Roblox. The system design been used in production code, but this particular library is currently untested as I have only just just extracted it out into a reusable library for use in an upcoming project.
 
 At the moment, this library provides:
 - DataStore session locking, including session reuse capabilities
