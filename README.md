@@ -87,9 +87,9 @@ Player.PlayerRemoving(Player)
 end
 
 local ProductProcessFunctions: {[number]: SessionLocker.ProductProcessFunction} = {
-	[12345678] = function(Op: number, LS: SessionLocker.LockerState)
+	[12345678] = function(Op: number, Locker: SessionLocker.LockerState)
 		if Op == SessionLocker.ProductProcessOp.apply then
-			LS.SaveData.Gold += 10
+			Locker.SaveData.Gold += 10
 		end
 		return true
 	end;
