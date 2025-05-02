@@ -54,7 +54,7 @@ local ServerClosing = false
 game:BindToClose(function()
 	ServerClosing = true
 	while next(Lockers) do task.wait() end
-end
+end)
 
 RunService.Heartbeat:Connect(function()
   for UserId, Locker in Lockers do
@@ -70,7 +70,7 @@ RunService.Heartbeat:Connect(function()
 	end
 end)
 
-Players.PlayerAdded(Player)
+Players.PlayerAdded:Connect(function(Player)
 	if not ServerClosing then
 		if not Lockers[Player.UserId] then
 			Lockers[Player.UserId] = SessionLocker.LockerCreate(
@@ -79,14 +79,14 @@ Players.PlayerAdded(Player)
 		local Locker = Lockers[Player.UserId]
 		SessionLocker.MarkShouldAcquire(Locker)
 	end
-end
+end)
 
-Players.PlayerRemoving(Player)
+Players.PlayerRemoving:Connect(function(Player)
 	local Locker = Lockers[Player.UserId]
 	if Locker then
 		SessionLocker.MarkShouldRelease(Locker)
 	end
-end
+end)
 
 local ProductProcessFunctions: {[number]: SessionLocker.ProductProcessFunction} = {
 	[12345678] = function(Op: number, Locker: SessionLocker.LockerState)
