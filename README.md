@@ -23,7 +23,7 @@ For reading the code, I recommend a tab width of 3 since that's what I wrote it 
 
 ## Minimal Example
 
-```
+```luau
 local SessionLocker = require(...)
 
 local LockerSpec: SessionLocker.LockerSpec = {
