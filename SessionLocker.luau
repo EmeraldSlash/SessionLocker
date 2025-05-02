@@ -33,9 +33,9 @@ local Module = {}
 -- override these global ones.)
 --
 -- .Default_ReportDataStoreError()
--- .Default_HandleSessionLockLost()
--- .Default_ReadOnlyDataStores
+-- .Default_SessionLockLost()
 -- .Default_VerboseLogs
+-- .Default_ReadOnlyDataStores
 -- .Default_MaintainSessionPeriod
 -- .Default_SessionExpiry
 -- .Default_SessionRetryCooldown
@@ -79,11 +79,8 @@ export type LockerSpec = {
 	
 	DataStore: DataStore;
 	
-	--
-	-- SaveDataVersion
-	--
-	-- Must start at 1, and increment by 1 with every version change. Needs to
-	-- be directly used as an index into an array of Migrators.
+	-- SaveDataVersion must start at 1, and increment by 1 with every version 
+	-- change, because it is used as an index into the SaveDataMigrators array.
 	--
 	-- This field will place a hard limit on whether a player's save data can be 
 	-- used or not. If a player joins a server with a version that the server 
@@ -92,15 +89,15 @@ export type LockerSpec = {
 	-- exposes what version was loaded, so that you can use that information to 
 	-- respond appropriately e.g. find new servers which are >= that version to 
 	-- teleport players to.)
-	
 	SaveDataVersion: number;
 	
-	-- Creates new save data when needed. Must not yield, as it can be called
-	-- from within UpdateAsync transform functions.
-	SaveDataCreator: (()->(any));
-	
+	-- Migrators.
 	SaveDataMigrators: {[number]: SaveDataMigrator}; -- [FromVersion]: MigratorToNextVersion
-	SaveDataPatchers: {[number]: SaveDataPatcher}; -- [CurrentVersion]: Patcher
+	SaveDataPatchers: {[number]: SaveDataPatcher}; -- [CurrentVersion]: PatcherCurrentVersion
+	
+	-- Creates new save data of the latest SaveDataVersion when needed. Must not 
+	-- yield, as it can be called from within UpdateAsync transform functions.
+	SaveDataCreator: (()->(SaveData));
 	
 	--
 	-- Optional functions
@@ -140,7 +137,7 @@ export type LockerSpec = {
 	-- In any case, before this function is called, the LockerState's save data
 	-- will be reset to default and its session will be reset. The session lock
 	-- will be automatically reaquired later if possible.
-	HandleSessionLockLost: ((LS: LockerState)->())?;
+	SessionLockLost: ((LS: LockerState)->())?;
 	
 	-- If set, this function will be called when save data is loaded, and the 
 	-- default local "offline" copy of save data (SourceSD) is about to be 
@@ -212,8 +209,8 @@ export type LockerSpec = {
 	-- If a value is nil, then the corresponding Module.Default_* value will be 
 	-- used instead.
 	
-	ReadOnlyDataStores: boolean?;
 	VerboseLogs: boolean?;
+	ReadOnlyDataStores: boolean?;
 	MaintainSessionPeriod: number?;
 	SessionExpiry: number?;
 	SessionRetryCooldown: number?;
@@ -484,7 +481,7 @@ Module.Default_ReportDataStoreError = function(
 	warn(debug.traceback("[SessionLocker] "..tostring(ErrorMessage)))
 end
 
-Module.Default_HandleSessionLockLost = function(
+Module.Default_SessionLockLost = function(
 	LS: LockerState
 )
 	for _, UserId in LS.AssociatedUserIds do
@@ -495,10 +492,11 @@ Module.Default_HandleSessionLockLost = function(
 	end
 end
 
--- If set to false, save data will be loaded but never be modified.
-Module.Default_ReadOnlyDataStores = true
-
 Module.Default_VerboseLogs = false
+
+-- If set to true, DataStores will be read from but never modified. Session 
+-- locks pretend to be obtained, but they haven't actually been obtained. 
+Module.Default_ReadOnlyDataStores = false
 
 -- Maximum duration save data is allowed to go without saving to maintain the 
 -- server's session lock.
@@ -879,8 +877,8 @@ end
 
 function Module.LockerCreate(
 	LockerSpec: LockerSpec,
-	AssociatedUserIds: {number}, -- UserIds to associate with the DataStore key.
 	DataStoreKey: string, -- The key save data is stored under.
+	AssociatedUserIds: {number}, -- UserIds to associate with the DataStore key.
 	LogPrefix: string, -- The prefix used when outputting logs.
 	DisableAPIs: boolean? -- Disable all DataStore & save/load behavior.
 )
@@ -905,8 +903,8 @@ function Module.LockerCreatePlayer(
 )
 	return Module.LockerCreate(
 		LockerSpec,
-		{Player.UserId},
 		DataStoreKey or string.format("%i", Player.UserId),
+		{Player.UserId},
 		LogPrefix or Module.LogPrefixCreate(Player.UserId),
 		DisableAPIs)
 end
@@ -1167,7 +1165,7 @@ local function SLS_Job(
 				(not CheckValue(LockerSpec.ReadOnlyDataStores, Module.Default_ReadOnlyDataStores))
 			then
 				-- Note: If saving is disabled then the code making the request cannot 
-				-- rely on the returned Header having particular values set by the 
+				-- rely on the returned SaveData having particular values set by the 
 				-- request (e.g. the session value, or migrated data).
 				return NewResult.SaveData, LS.AssociatedUserIds
 			else
@@ -1494,8 +1492,8 @@ local function PerformSessionSave(
 				SS.SessionSaveState = nil
 				Module.SessionReset(LS)
 				
-				if LockerSpec.HandleSessionLockLost then
-					LockerSpec.HandleSessionLockLost(LS)
+				if LockerSpec.SessionLockLost then
+					LockerSpec.SessionLockLost(LS)
 				end
 				
 				break
