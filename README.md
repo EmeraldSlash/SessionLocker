@@ -20,6 +20,7 @@ Future plans:
   - Passing userdata into `LockerSpec` callbacks (e.g. you have a table associated with the `LockerState` that you want to access from within a callback). My current preference is to store userdata inside `LockerState`, but this means I need to fight with the typechecker.
   - Getting `LockerState.SaveData` casted into the actual SaveData type defined by the user with minimal friction (and accessing the save data in the first place might be annoyance for some people if they'd like to store it in more convenient place)
 - Figure out how to deal with DataStore request limits. Should there be some kind of API for saying whether a particular DataStore request is allowed to happen or not, so that game code can control DataStore budget usage?
+- Better error checking & messages so that the library has good human error UX
 
 ## Design
 
