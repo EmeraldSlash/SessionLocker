@@ -34,7 +34,7 @@ local Module = {}
 --
 -- .Default_ReportDataStoreError()
 -- .Default_HandleSessionLockLost()
--- .Default_SavingEnabled
+-- .Default_ReadOnlyDataStores
 -- .Default_VerboseLogs
 -- .Default_MaintainSessionPeriod
 -- .Default_SessionExpiry
@@ -48,8 +48,10 @@ local Module = {}
 -- .MarkShouldAcquire()
 -- .MarkShouldRelease()
 -- .MarkShouldSave()
--- .SessionReset()
--- .SessionCreate()
+-- .MarkForceSave()
+-- .LockerResetSession()
+-- .LockerCreate()
+-- .LockerCreatePlayer()
 -- .ProductCreditGive()
 -- .ProductCreditQuery()
 -- .ProductCreditUse()
@@ -93,51 +95,76 @@ export type LockerSpec = {
 	
 	SaveDataVersion: number;
 	
-	-- [SaveDataVersion]: PatcherOrMigrator
-	SaveDataMigrators: {[number]: SaveDataMigrator};
-	SaveDataPatchers: {[number]: SaveDataPatcher};
-	
 	-- Creates new save data when needed. Must not yield, as it can be called
 	-- from within UpdateAsync transform functions.
 	SaveDataCreator: (()->(any));
 	
-	--
-	-- Optional parameters
-	--
-	-- If an optional function is not provided then nothing will be done. Some 
-	-- functions have a default version Module.Default_* which you can have a 
-	-- look at.
-	--
+	SaveDataMigrators: {[number]: SaveDataMigrator}; -- [FromVersion]: MigratorToNextVersion
+	SaveDataPatchers: {[number]: SaveDataPatcher}; -- [CurrentVersion]: Patcher
 	
+	--
+	-- Optional functions
+	--
+	-- If an optional function is not provided, some functions have a default 
+	-- version Module.Default_* which you can have a look at. Also see 
+	-- @CallbackCallingConvention
+	
+	-- This function will be used to report common boring errors that are 
+	-- specifically related to backend or network communication failures, and are
+	-- generally not relevant for our own code.
 	ReportDataStoreError: ((
 		ErrorMessage: string,
 		DataStore: DataStore,
 		OperationName: string,
-		UserId: number,
-		DataStoreKey: string
+		DataStoreKey: string,
+		AssociatedUserIds: {number}
 	)->())?;
 	
-	-- What do you want to do when session lock is lost? This could happen if the
-	-- current server fails to maintain the session lock, and another server 
-	-- tries to obtain a session lock 30+ minutes later. By default in this 
-	-- situation we kick the player. In any case, their current save file has 
-	-- been reset to default (as if they had rejoined the server), and the 
-	-- session will be restarted automatically if the player is still in the 
-	-- server.
+	-- This function will be called when a session lock is lost.
+	--
+	-- This scenario should basically never happen. It will could happen if the 
+	-- current server stays alive but fails to maintain the session lock for 30 
+	-- minutes straight, and another server tries to obtain a session lock 30+ 
+	-- minutes later. (30 minutes being the default SessionExpiry setting.) 
+	-- Another factor is that servers may have their timestamps be out of sync, 
+	-- in which case the actual time threshold for this happening is 
+	-- (SessionExpiry - TimestampDifference). If this happens to be less than 
+	-- MaintainSessionPeriod, then no server will be able to hold on to a session
+	-- lock.
+	--
+	-- A default global function is defined for this callback, which will kick 
+	-- the player from the server if they are still in-game. If you don't want 
+	-- that you can just override the global function (to do nothing, or 
+	-- something else), or override the function in the LockerSpec here.
+	--
+	-- In any case, before this function is called, the LockerState's save data
+	-- will be reset to default and its session will be reset. The session lock
+	-- will be automatically reaquired later if possible.
 	HandleSessionLockLost: ((LS: LockerState)->())?;
 	
-	-- Use this function if you want to merge the local copy of save data 
-	-- (SourceSD) into the newly loaded save data (DestSD). This local copy is 
-	-- guaranteed to never have been saved before, it's completely fresh dummy 
-	-- data that the player was using before the real data loaded. Only some 
-	-- values may be mergable: for example, if you track a player's playtime, you
-	-- could do DestSD.TimePlayedSeconds += SourceSD.TimePlayerSeconds.
+	-- If set, this function will be called when save data is loaded, and the 
+	-- default local "offline" copy of save data (SourceSD) is about to be 
+	-- replacted by the newly loaded save data (DestSD).
+	--
+	-- The function should merge applicable data from SourceSD into DestSD, 
+	-- mutating DestSD.
+	--
+	-- SourceSD is guaranteed to never have been saved before, it's completely 
+	-- fresh dummy data that the player was using before the real data loaded. 
+	--
+	-- Note that only some values may be mergable: for example, if you track a 
+	-- player's playtime, you could do DestSD.TimePlayedSeconds += 
+	-- SourceSD.TimePlayerSeconds, but if for some reason you give each save data
+	-- a unique GUID then it would not make sense to do DestSD.GUID = 
+	-- SourceSD.GUID.
 	MergeOfflineSaveDataWithLoadedSaveData: ((
 		LS: LockerState,
 		SourceSD: any,
 		DestSD: any
 	)->())?;
 	
+	-- This function will be called when SaveData.ProductCredit is modified in
+	-- any way.
 	ProductCreditChanged: ((
 		LS: LockerState,
 		SD: any,
@@ -146,15 +173,46 @@ export type LockerSpec = {
 		UserData: any
 	)->())?;
 	
+	-- This function will be called when the LockerState.SaveData field is 
+	-- replaced by a new table, including when a session released or lost. This 
+	-- callback is useful if you keep external references to the SaveData table.
+	--
+	-- If you are using the SaveDataSaved callback, you should use this 
+	-- SaveDataReplaced callback as a way to detect a failure to save (e.g. 
+	-- because the session was released). All the ChangeIds in LockerState will 
+	-- have been reset to 0, so a correct response from your external code would 
+	-- be to discard all the ChangeIds it has and start again or cancel whatever 
+	-- it was trying to do.
 	SaveDataReplaced: ((LS: LockerState, SD: any)->())?;
 	
-	-- Use this to detect when save data loads or is reset or whatever.
+	-- This function will be called when SaveData is successfully saved to the 
+	-- DataStore. This can be used for anything that needs to keep track of 
+	-- whether data was saved or not: things like transactions betweens players 
+	-- (trading) or developer product processing (note: developer product 
+	-- saving is currently automatically handled by this library, so you 
+	-- shouldn't need to implement this).
+	--
+	-- The second argument is the ChangeId of the save, which is basically like a
+	-- unique ID indicating the version of the save data. Calling 
+	-- .MarkShouldSave() or .MarkForceSave() will begin a save and return the 
+	-- current ChangeId of the SaveData (let's call this "ChangeId_Tracked"), so 
+	-- you can detect when a save is completed by seeing if ChangeId_Saved >= 
+	-- ChangeId_Tracked within this callback. If you are using this function then
+	-- you should also probably be using the SaveDataReplaced callback above!
+	SaveDataSaved: ((LS: LockerState, ChangeId_Saved: number)->())?;
+	
+	-- Use this to detect when the state of a session changes. Which is quite 
+	-- important for understanding how to interpret and interact with 
+	-- LockerState.SaveData, ChangeIds, and so on.
 	LoadStatusChanged: ((LS: LockerState)->())?;
 	
-	-- These are configuration values which you can change for this session spec 
-	-- only. If a value is nil, then the corresponding Module.Default_* value 
-	-- will be used instead.
-	SavingEnabled: boolean?;
+	--
+	-- Optional configuration values
+	--
+	-- If a value is nil, then the corresponding Module.Default_* value will be 
+	-- used instead.
+	
+	ReadOnlyDataStores: boolean?;
 	VerboseLogs: boolean?;
 	MaintainSessionPeriod: number?;
 	SessionExpiry: number?;
@@ -408,12 +466,20 @@ end
 -- Default options
 --
 
+-- @CallbackCallingConvention To avoid unnecessary proliferation of units of 
+-- code execution, all callbacks will be called directly without task.spawn() or
+-- pcall(). This means you must avoid yielding or throwing errors in callbacks.
+-- If you need to yield, you can put a task.spawn() inside your callback. Such 
+-- wrapping is expected to be common if your code architecture is different from
+-- the design of this library, or if you are unsure whether errors will be 
+-- thrown or not.
+
 Module.Default_ReportDataStoreError = function(
 	ErrorMessage: string,
 	DataStore: DataStore,
 	OperationName: string,
-	UserId: number,
-	DataStoreKey: string
+	DataStoreKey: string,
+	AssociatedUserIds: {number}
 )
 	warn(debug.traceback("[SessionLocker] "..tostring(ErrorMessage)))
 end
@@ -421,14 +487,16 @@ end
 Module.Default_HandleSessionLockLost = function(
 	LS: LockerState
 )
-	local Player = game.Players:GetPlayerByUserId(LS.UserId)
-	if Player then
-		Player:Kick("Save data session lock has been lost. Please tell the developer.")
+	for _, UserId in LS.AssociatedUserIds do
+		local Player = game.Players:GetPlayerByUserId(UserId)
+		if Player then
+			Player:Kick("Save data session lock has been lost. Please tell the developer.")
+		end
 	end
 end
 
 -- If set to false, save data will be loaded but never be modified.
-Module.Default_SavingEnabled = true
+Module.Default_ReadOnlyDataStores = true
 
 Module.Default_VerboseLogs = false
 
@@ -649,7 +717,7 @@ export type LockerState = {
 	-- Independent of session locks
 	--
 	
-	UserId: number;
+	AssociatedUserIds: {number};
 	DataStoreKey: string;
 	LockerSpec: LockerSpec;
 	LogPrefix: string;
@@ -669,8 +737,16 @@ export type LockerState = {
 	-- merged into the newly loaded body.
 	SaveData: SaveData;
 	
+	-- Anything that modifies the save data should increment 
+	-- LockerState.ChangeId_Pending to inform the library that a change needs to 
+	-- be saved, and LockerSate.ChangeId_Saved indicates the highest ChangeId 
+	-- which has been written to DataStore. LockerState.ChangeId_PendingForce 
+	-- will force data to be saved immediately if it is higher than 
+	-- ChangeId_Saved.
 	ChangeId_Pending: number;
+	ChangeId_PendingForce: number;
 	ChangeId_Saved: number;
+	
 	LoadStatus: number;
 	-- You could use this value in combination with MemoryStores to teleport 
 	-- players to servers which a SaveData version of this value or higher, if
@@ -739,8 +815,20 @@ function Module.MarkShouldRelease(LS: LockerState)
 	LS.InUse = false
 end
 
-function Module.MarkShouldSave(LS: LockerState)
+-- Both of these functions return the ChangeId of this save operation, so you 
+-- can know when it finishes.
+function Module.MarkShouldSave(LS: LockerState): number
+	-- Indicate that data should save on the next autosave. This doesn't have any
+	-- effect on data saving at the moment, as autosaves will always be 
+	-- performed in order to maintain the session lock.
 	LS.ChangeId_Pending += 1
+	return LS.ChangeId_Pending
+end
+function Module.MarkForceSave(LS: LockerState): number
+	-- Indicate that data should be saved immediately.
+	LS.ChangeId_Pending += 1
+	LS.ChangeId_PendingForce = LS.ChangeId_Pending
+	return LS.ChangeId_Pending
 end
 
 function Module.SessionReset(LS: LockerState)
@@ -773,6 +861,7 @@ function Module.SessionReset(LS: LockerState)
 	LS.LoadStatus = LoadStatus.loading
 	LS.LoadMinimumServerVersion = nil
 	LS.ChangeId_Pending = 0
+	LS.ChangeId_PendingForce = 0
 	LS.ChangeId_Saved = 0
 	
 	-- Use default save data before anything has loaded.
@@ -788,29 +877,38 @@ function Module.SessionReset(LS: LockerState)
 	end
 end
 
-function Module.SessionCreate(
+function Module.LockerCreate(
 	LockerSpec: LockerSpec,
-	UserId: number,
-	
-	-- The key save data is stored under.
-	DataStoreKey: string?,
-	
-	-- The prefix used when outputting logs.
-	LogPrefix: string?,
-	
-	-- Prevent DataStore requests from being made.
-	DisableAPIs: boolean?
+	AssociatedUserIds: {number}, -- UserIds to associate with the DataStore key.
+	DataStoreKey: string, -- The key save data is stored under.
+	LogPrefix: string, -- The prefix used when outputting logs.
+	DisableAPIs: boolean? -- Disable all DataStore & save/load behavior.
 )
 	local LS = {} :: LockerState
-	LS.UserId = UserId
+	LS.AssociatedUserIds = AssociatedUserIds
 	LS.LockerSpec = LockerSpec
-	LS.DataStoreKey = DataStoreKey or string.format("%i", UserId)
-	LS.LogPrefix = LogPrefix or Module.LogPrefixCreate(UserId)
+	LS.DataStoreKey = DataStoreKey 
+	LS.LogPrefix = LogPrefix
 	LS.DisableAPIs = DisableAPIs
 	LS.InUse = false
 	LS.PendingProductPurchases = {}
 	Module.SessionReset(LS)
 	return LS
+end
+
+function Module.LockerCreatePlayer(
+	LockerSpec: LockerSpec,
+	Player: Player,
+	DataStoreKey: string?,
+	LogPrefix: string?,
+	DisableAPIs: boolean?
+)
+	return Module.LockerCreate(
+		LockerSpec,
+		{Player.UserId},
+		DataStoreKey or string.format("%i", Player.UserId),
+		LogPrefix or Module.LogPrefixCreate(Player.UserId),
+		DisableAPIs)
 end
 
 function Module.ProductCreditGive(
@@ -1066,12 +1164,12 @@ local function SLS_Job(
 			TransformedResult = NewResult
 			
 			if (NewResult.LoadStatus == LoadStatus.loaded) and
-				(CheckValue(LockerSpec.SavingEnabled, Module.Default_SavingEnabled))
+				(not CheckValue(LockerSpec.ReadOnlyDataStores, Module.Default_ReadOnlyDataStores))
 			then
 				-- Note: If saving is disabled then the code making the request cannot 
 				-- rely on the returned Header having particular values set by the 
 				-- request (e.g. the session value, or migrated data).
-				return NewResult.SaveData, {LS.UserId}
+				return NewResult.SaveData, LS.AssociatedUserIds
 			else
 				return nil
 			end
@@ -1093,8 +1191,8 @@ local function SLS_Job(
 					RequestMessage,
 					LockerSpec.DataStore,
 					"UpdateAsync_Load",
-					LS.UserId,
-					LS.DataStoreKey)
+					LS.DataStoreKey,
+					LS.AssociatedUserIds)
 			end
 		
 		elseif not TransformedResult then
@@ -1107,7 +1205,7 @@ local function SLS_Job(
 			-- If saving is not enabled (i.e. the UpdateAsync transform function 
 			-- returned nil, cancelling the update) then the data won't have been 
 			-- returned by UpdateAsync, so we need to manually set it here.
-			if (not CheckValue(LockerSpec.SavingEnabled, Module.Default_SavingEnabled)) and
+			if (CheckValue(LockerSpec.ReadOnlyDataStores, Module.Default_ReadOnlyDataStores)) and
 				(TransformedResult.LoadStatus == LoadStatus.loaded)
 			then
 				Result.SaveData = TransformedResult.SaveData
@@ -1284,7 +1382,7 @@ local function SSS_Job(
 			end
 			
 			if TransformSuccess then
-				return TransformSD, {LS.UserId}
+				return TransformSD, LS.AssociatedUserIds
 			else
 				return nil
 			end
@@ -1293,7 +1391,7 @@ local function SSS_Job(
 		local NewPSD
 		
 		local RequestSuccess, RequestMessage = pcall(function()
-			if CheckValue(LockerSpec.SavingEnabled, Module.Default_SavingEnabled) then
+			if not CheckValue(LockerSpec.ReadOnlyDataStores, Module.Default_ReadOnlyDataStores) then
 				NewPSD = LockerSpec.DataStore:UpdateAsync(
 					LS.DataStoreKey,
 					TransformFunction)
@@ -1315,8 +1413,8 @@ local function SSS_Job(
 					RequestMessage,
 					LockerSpec.DataStore,
 					"UpdateAsync_Save",
-					LS.UserId,
-					LS.DataStoreKey)
+					LS.DataStoreKey,
+					LS.AssociatedUserIds)
 			end
 		end
 		
@@ -1407,6 +1505,9 @@ local function PerformSessionSave(
 				
 				-- Update the highest saved ChangeId.
 				LS.ChangeId_Saved = Result.ChangeId
+				if LS.LockerSpec.SaveDataSaved then
+					LS.LockerSpec.SaveDataSaved(LS, LS.ChangeId_Saved)
+				end
 				
 				-- Successful product purchases need to be completed here, before
 				-- we release the session.
@@ -1486,6 +1587,7 @@ function Module.UpdatePendingProductPurchases(LS: LockerState, HeartbeatNow)
 				end
 				
 				LS.ChangeId_Pending += 1
+				LS.ChangeId_PendingForce = LS.ChangeId_Pending
 				
 				-- Add the product to purchase history.
 				local Limit = CheckValue(
@@ -1501,11 +1603,6 @@ function Module.UpdatePendingProductPurchases(LS: LockerState, HeartbeatNow)
 					PendingProductPurchase = PPP;
 					ChangeId = LS.ChangeId_Pending;
 				})
-				
-				-- We want to force an autosave to begin immediately. This value 
-				-- needs to be set to a valid time such that data will also be 
-				-- saved along with the header.
-				SS.AutosaveAt = HeartbeatNow
 			end	
 		end
 		table.clear(LS.PendingProductPurchases)
@@ -1552,7 +1649,9 @@ function Module.UpdateSession(LS: LockerState, HeartbeatNow: number): boolean
 	-- normally.
 	elseif LS.InUse then
 		PerformSessionSave(
-			LS, SS, HeartbeatNow, HeartbeatNow >= SS.AutosaveAt, false)
+			LS, SS, HeartbeatNow,
+			(HeartbeatNow >= SS.AutosaveAt) or (LS.ChangeId_PendingForce > LS.ChangeId_Saved),
+			false)
 		
 	-- Once the player has left the game, we try to save all changes to their 
 	-- data.
@@ -1567,6 +1666,138 @@ end
 function Module.UpdateEverything(LS: LockerState, HeartbeatNow: number): boolean
 	Module.UpdatePendingProductPurchases(LS, HeartbeatNow)
 	return Module.UpdateSession(LS, HeartbeatNow)
+end
+
+--
+-- Easy default stuff for beginners. This is enough to get up and running, but 
+-- for any further stuff (including save data structure updates and migrations) 
+-- it is recommended to use the more extensive APIs.
+--
+-- .EasyCreate() (call this when a player is added)
+-- .EasyRemove() (call this when a player leaves i.e. their session should be released)
+-- .EasyGet()    (call this to obtain the EasyLockerState for the player) 
+-- .EasySaveData() (call this check if save data is loaded and return save table)
+--
+
+export type EasyLockerState = LockerState & {
+	-- Exposed bindable event callbacks.
+	Bindables: {BindableEvent};
+	Reset: RBXScriptSignal;
+	Loaded: RBXScriptSignal;
+	Saved: RBXScriptSignal;
+	ProductCreditChanged: RBXScriptSignal;
+	
+	-- Other random state
+	IsLoaded: boolean;
+}
+
+local State = {
+	LS_ByPlayer = {} :: {[Player]: EasyLockerState};
+	ConnectionHeartbeat = nil :: RBXScriptConnection?;
+}
+
+local function EasyHeartbeat()
+	if State.ConnectionHeartbeat then
+		local HeartbeatNow = os.clock()
+		for Player, LS in State.LS_ByPlayer do
+			if Module.UpdateEverything(LS, HeartbeatNow) then
+				State.LS_ByPlayer[Player] = nil
+				
+				for _, Bindable in LS.Bindables do
+					Bindable:Destroy()
+				end
+			end
+		end
+		if not next(State.LS_ByPlayer) then
+			State.ConnectionHeartbeat:Disconnect()
+			State.ConnectionHeartbeat = nil
+		end
+	end
+end
+
+function Module.EasyCreate(
+	Player: Player,
+	CreateSaveData: ()->({[any]: any})
+)
+	assert(not State.LS_ByPlayer[Player],
+		"LockerState has already been created for this player!")
+	
+	local Bindables = {
+		Reset = Instance.new("BindableEvent");
+		Loaded = Instance.new("BindableEvent");
+		Saved = Instance.new("BindableEvent");
+		ProductCreditChanged = Instance.new("BindableEvent");
+	}
+	
+	local LockerSpec: LockerSpec = {
+		DataStore = game:GetService("DataStoreService"):GetDataStore("SessionLocker_SaveData");
+		SaveDataVersion = 1;
+		SaveDataMigrators = {};
+		SaveDataPatchers = {};
+		SaveDataCreator = function(): SaveData
+			local SaveData = CreateSaveData()
+			SaveData.Version = 1
+			SaveData.VersionPatch = 0
+			SaveData.Purchases = {}
+			SaveData.ProductCredit = {}
+			return SaveData
+		end;
+		LoadStatusChanged = function(LS)
+			local ELS: EasyLockerState = LS :: any
+			
+			local IsLoaded =
+				if ELS.LoadStatus == LoadStatus.loaded then true else false
+			if ELS.IsLoaded ~= IsLoaded then
+				ELS.IsLoaded = IsLoaded
+				
+				if IsLoaded then
+					Bindables.Loaded:Fire()
+				else
+					Bindables.Reset:Fire()
+				end
+			end
+		end;
+		SaveDataSaved = function(LS)
+			Bindables.Saved:Fire()
+		end;
+		ProductCreditChanged = function(LS)
+			Bindables.ProductCreditChanged:Fire()
+		end;
+	}
+	
+	local LS = Module.LockerCreatePlayer(LockerSpec, Player) :: EasyLockerState
+	Module.MarkShouldAcquire(LS)
+	
+	LS.Bindables = Bindables
+	LS.Reset = Bindables.Reset.Event
+	LS.Loaded = Bindables.Loaded.Event
+	LS.Saved = Bindables.Saved.Event
+	LS.ProductCreditChanged = Bindables.ProductCreditChanged.Event
+	LS.IsLoaded = false
+	
+	State.LS_ByPlayer[Player] = LS
+	if not State.ConnectionHeartbeat then
+		State.ConnectionHeartbeat =
+			game:GetService("RunService").Heartbeat:Connect(EasyHeartbeat)
+	end
+	
+	return LS
+end
+
+function Module.EasyGet(Player: Player)
+	return State.LS_ByPlayer[Player]
+end
+
+function Module.EasyRemove(Player: Player)
+	local LS = State.LS_ByPlayer[Player]
+	if LS then
+		Module.MarkShouldRelease(LS)
+	end
+end
+
+function Module.EasySaveData(LS: LockerState)
+	local Loaded = if LS.LoadStatus == LoadStatus.loaded then true else false
+	return Loaded, LS.SaveData
 end
 
 return Module
