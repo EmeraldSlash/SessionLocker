@@ -25,7 +25,7 @@ There are some common limitations in Roblox DataStore libraries that I am trying
 - A library globally refers to `DataStoreService` so the DataStore API can't be mocked
 - A library only supports a single `DataStore` being used so if you need more then you have to duplicate the library or do it yourself.
 - A library forcibly binds itself to top-level signals or callbacks, such as `game:BindToClose()` and `Players.PlayerAdded/PlayerRemoving`, meaning usage code has no control over where or when the library does things.
-- A library does not clearly define or limit how code is executed, so it's often unclear when it's safe or not safe to do things, and one has to write code defensively. It is also often written in a way that's quite complicated, so it's kind of like a magical black box that programmers using it have difficulty understanding.
+- A library does not clearly define or limit how code is executed, so it's often unclear when it's safe or not safe to do things, and one has to write code defensively. It is also often written in a way that's quite convoluted, so it's kind of like a magical black box that programmers using it have difficulty understanding.
 - A library couples DataStore logic with client/server replication and specific data modification & change detection approaches, which forces particular code architectures and increases abstraction.
 
  To avoid these pitfalls, note these following aspects of the library's design:
