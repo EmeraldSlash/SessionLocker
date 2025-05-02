@@ -108,7 +108,7 @@ MarketplaceService.ProcessReceipt = function(
 	if PF and Locker hen
 
 		if SessionLocker.YieldUntilProductIsProcessedAndSaved(
-				Locker, PF, ReceiptInfo)
+			Locker, PF, ReceiptInfo)
 		then
 			Result = Enum.ProductPurchaseDecision.Granted
 		end
