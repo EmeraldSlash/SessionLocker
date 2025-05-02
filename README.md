@@ -24,6 +24,8 @@ For reading the code, I recommend a tab width of 3 since that's what I wrote it 
 ## Minimal Example
 
 ```luau
+--!strict
+
 local SessionLocker = require(...)
 
 local LockerSpec: SessionLocker.LockerSpec = {
@@ -79,7 +81,7 @@ Players.PlayerAdded(Player)
 	end
 end
 
-Player.PlayerRemoving(Player)
+Players.PlayerRemoving(Player)
 	local Locker = Lockers[Player.UserId]
 	if Locker then
 		SessionLocker.MarkShouldRelease(Locker)
