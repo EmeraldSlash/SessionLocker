@@ -18,6 +18,7 @@ Future plans:
 - Find ways to make typechecking a little more convenient. It's pretty good right now, but there are still two big annoyances which I'd like to resolve:
   - Passing userdata into `LockerSpec` callbacks (e.g. you have a table associated with the `LockerState` that you want to access from within a callback)
   - Getting `LockerState.SaveData` casted into the actual SaveData type defined by the user with minimal friction (and accessing the save data in the first place might be annoyance for some people if they'd like to store it in more convenient place)
+- Figure out how to deal with `DataStore` request limits. Should there be some kind of API for saying whether a particular DataStore request is allowed to happen or not, so that game code can control `DataStore` budget usage?
 
 ## Design
 
@@ -32,7 +33,7 @@ There are some common limitations in Roblox DataStore libraries that I am trying
 - The use of singletons or globals is avoided so that all inputs can be configured by usage code.
 - All code execution can be controlled by the usage code (except for isolated operations without side effects). But the library can still have _optional_ convenience APIs which execute code on their own, if the user doesn't care.
 - Complicated pipelines are explicitly implemented as state machines so that they can be easily comprehended by humans and turned into isolated reusable units of code. At the moment the library's state machines are reevaluated every frame, which is fine at the moment: there are no performance problems. If necessary the state machines can be reevaluated less frequently. Blocking Roblox API calls are isolated so that they can behave as nice pure functions with no annoying code execution side effects.
-  - This explicit state machine design is a reaction to the common programming style in Roblox that makes heavy use of fibers ("coroutines" / "threads") and derived constructs (like promises). This programming style complicates code execution and makes it hard to guarantee robustness, especially when there are many different sources of input into the implicit state machine. In the case of DataStore state machines, they have inputs coming from game code modifying save data or requesting data to be saved, players joining and leaving the game, and the success or failure of various `DataStore` operations.
+  - This explicit state machine design is a reaction to the common programming style in Roblox that makes heavy use of fibers ("coroutines" / "threads") and derived constructs (like promises). This programming style complicates code execution and makes it hard to guarantee robustness, especially when there are many different sources of input into the implicit state machine. In the case of DataStore state machines, they have inputs coming from game code modifying save data or requesting data to be saved, players joining and leaving the game, the success or failure of various `DataStore` operations, and `DataStore` request limits.
 
 ## Realistic Example
 
