@@ -3,7 +3,7 @@
 This is a reusable library for using DataStore session locking in Roblox. The system design been used in production code, but this particular library is currently untested as I have only just just extracted it out into a reusable library.
 
 At the moment, this library provides:
-- DataStore session locking including session reuse
+- DataStore session locking, including session reuse capabilities
 - Save data migration & patching facilities
 - Safe Developer Product processing, product credit, and product purchase history
 
