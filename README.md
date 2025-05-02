@@ -74,7 +74,7 @@ Players.PlayerAdded(Player)
 	if not ServerClosing then
 		if not Lockers[Player.UserId] then
 			Lockers[Player.UserId] = SessionLocker.LockerCreate(
-				LockerSpec, tostring(Player.UserId, {17614882})
+				LockerSpec, tostring(Player.UserId), {17614882})
 		end
 		local Locker = Lockers[Player.UserId]
 		SessionLocker.MarkShouldAcquire(Locker)
