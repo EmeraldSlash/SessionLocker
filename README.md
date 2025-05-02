@@ -17,7 +17,7 @@ Future plans:
 - Add a low granularity API for waiting until a change has been saved. This API should be a demo of the deeper APIs, as this use case can already be achieved with the current API, but it's not good for beginners.
 - Add some affordances for fields like `LockerState.InUse` so that different pieces of code may prevent the session from being released without knowing about each other. I guess I should just make it an array of values rather than a bool?
 - Find ways to make typechecking a little more convenient. It's pretty good right now, but there are still two big annoyances which I'd like to resolve:
-  - Passing userdata into `LockerSpec` callbacks (e.g. you have a table associated with the `LockerState` that you want to access from within a callback)
+  - Passing userdata into `LockerSpec` callbacks (e.g. you have a table associated with the `LockerState` that you want to access from within a callback). My current preference is to store userdata inside `LockerState`, but this means I need to fight with the typechecker.
   - Getting `LockerState.SaveData` casted into the actual SaveData type defined by the user with minimal friction (and accessing the save data in the first place might be annoyance for some people if they'd like to store it in more convenient place)
 - Figure out how to deal with DataStore request limits. Should there be some kind of API for saying whether a particular DataStore request is allowed to happen or not, so that game code can control DataStore budget usage?
 
