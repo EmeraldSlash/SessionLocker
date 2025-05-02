@@ -114,7 +114,9 @@ Players.PlayerAdded:Connect(function(Player)
 	if not State.ServerClosing then
 		if not State.Lockers[Player.UserId] then
 			State.Lockers[Player.UserId] = SessionLocker.LockerCreate(
-				LockerSpec, tostring(Player.UserId), {17614882})
+				LockerSpec,
+				tostring(Player.UserId), -- DataStore key
+				{Player.UserId}) -- Associated UserIds
 		end
 		local Locker = State.Lockers[Player.UserId]
 		SessionLocker.MarkShouldAcquire(Locker)
