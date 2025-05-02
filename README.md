@@ -66,8 +66,8 @@ RunService.Heartbeat:Connect(function()
 	end
 
 	if SessionLocker.UpdateEverything(Locker) then
-	Lockers[UserId] = nil
-    end
+		Lockers[UserId] = nil
+	end
 end)
 
 Players.PlayerAdded(Player)
