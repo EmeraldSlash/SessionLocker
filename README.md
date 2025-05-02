@@ -6,7 +6,7 @@ For reading the code, I recommend a tab width of 3 since that's what I wrote it 
 
 At the moment, this library provides:
 - DataStore session locking, including session reuse capabilities
-- Save data migration & patching facilities
+- Save data version migration & patching facilities
 - Safe Developer Product processing, credit, and purchase history
 
 Future plans:
