@@ -35,13 +35,22 @@ local MarketplaceService = game:GetService("MarketplaceService")
 
 type SaveData = SessionLocker.SaveData & {
 	Gold: number;
+	Playtime: number;
 }
 
 local LockerSpec: SessionLocker.LockerSpec = {
 	DataStore = DataStoreService:GetDataStore("SaveData");
 
-	SaveDataVersion = 1;
-	SaveDataMigrators = {};
+	SaveDataVersion = 2;
+	SaveDataMigrators = {
+		
+		-- Playtime was added in version 2.
+		[1] = function(SaveData)
+			SaveData.Playtime = 0
+			return 0
+		end;
+		
+	};
 	SaveDataPatchers = {};
 
 	SaveDataCreator = function()
@@ -53,6 +62,7 @@ local LockerSpec: SessionLocker.LockerSpec = {
 			
 			-- Your custom stuff here!
 			Gold = 0;
+			Playtime = 0;
 		}
 	end;
 }
@@ -72,11 +82,11 @@ RunService.Heartbeat:Connect(function()
 	
 	for UserId, Locker in State.Lockers do
 		
-		-- Let's give our player one gold for every frame
+		-- Let's give our player one playtime unit for every frame
 		-- they spend in-game!
 		if Locker.LoadStatus == SessionLocker.LoadStatus.loaded then
 			local SaveData = Locker.SaveData :: SaveData
-			SaveData.Gold += 1
+			SaveData.Playtime += 1
 		end
 
 		if SessionLocker.UpdateEverything(Locker, HeartbeatNow) then
