@@ -84,7 +84,7 @@ RunService.Heartbeat:Connect(function()
 		
 		-- Let's give our player one playtime unit for every frame
 		-- they spend in-game!
-		if Locker.LoadStatus == SessionLocker.LoadStatus.loaded then
+		if Locker.LoadStatus == SessionLocker.LoadStatus.loaded and Locker.InUse then
 			local SaveData = Locker.SaveData :: SaveData
 			SaveData.Playtime += 1
 		end
