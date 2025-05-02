@@ -1,6 +1,8 @@
 --!strict
 
--- SessionLocker - DataStore session locking & common save data operations
+-- SessionLocker: DataStore session locking & save data management.
+--
+-- https://github.com/EmeraldSlash/SessionLocker
 --
 -- Created by Rio Manson-Hay (@EmeraldSlash)
 --
@@ -879,14 +881,14 @@ function Module.LockerCreate(
 	LockerSpec: LockerSpec,
 	DataStoreKey: string, -- The key save data is stored under.
 	AssociatedUserIds: {number}, -- UserIds to associate with the DataStore key.
-	LogPrefix: string, -- The prefix used when outputting logs.
+	LogPrefix: string?, -- The prefix used when outputting logs.
 	DisableAPIs: boolean? -- Disable all DataStore & save/load behavior.
 )
 	local LS = {} :: LockerState
 	LS.AssociatedUserIds = AssociatedUserIds
 	LS.LockerSpec = LockerSpec
 	LS.DataStoreKey = DataStoreKey 
-	LS.LogPrefix = LogPrefix
+	LS.LogPrefix = LogPrefix or DataStoreKey
 	LS.DisableAPIs = DisableAPIs
 	LS.InUse = false
 	LS.PendingProductPurchases = {}
