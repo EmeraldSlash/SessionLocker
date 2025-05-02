@@ -106,7 +106,7 @@ MarketplaceService.ProcessReceipt = function(
 	
 	local PF = ProductProcessFunctions[ReceiptInfo.ProductId]
 	local Locker = Lockers[ReceiptInfo.PlayerId]
-	if PF and Locker hen
+	if PF and Locker then
 
 		if SessionLocker.YieldUntilProductIsProcessedAndSaved(
 			Locker, PF, ReceiptInfo)
