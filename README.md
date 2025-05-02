@@ -1,6 +1,7 @@
 # SessionLocker
 
 This is a reusable library for using DataStore session locking in Roblox. The system design been used in production code, but this particular library is currently untested as I have only just just extracted it out into a reusable library for use in an upcoming project.
+For reading the code, I recommend a tab width of 3 since that's what I wrote it with (and my Luau formatting style depends on tab width). Unfortunately GitHub does not provide this tab widh as an option in their UI, but you can get it for a particular file by appending `?ts=3` to the end of the file's URL.
 
 At the moment, this library provides:
 - DataStore session locking, including session reuse capabilities
@@ -18,6 +19,8 @@ Future plans:
   - Passing userdata into `LockerSpec` callbacks (e.g. you have a table associated with the `LockerState` that you want to access from within a callback)
   - Getting `LockerState.SaveData` casted into the actual SaveData type defined by the user with minimal friction (and accessing the save data in the first place might be annoyance for some people if they'd like to store it in more convenient place)
 
+## Design
+
 There are some common limitations in Roblox DataStore libraries that I am trying to avoid in SessionLocker:
 - A library globally refers to `DataStoreService` so the DataStore API can't be mocked
 - A library only supports a single `DataStore` being used so if you need more then you have to duplicate the library or do it yourself.
@@ -30,8 +33,6 @@ There are some common limitations in Roblox DataStore libraries that I am trying
 - All code execution can be controlled by the usage code (except for isolated operations without side effects). But the library can still have _optional_ convenience APIs which execute code on their own, if the user doesn't care.
 - Complicated pipelines are explicitly implemented as state machines so that they can be easily comprehended by humans and turned into isolated reusable units of code. At the moment the library's state machines are reevaluated every frame, which is fine at the moment: there are no performance problems. If necessary the state machines can be reevaluated less frequently. Blocking Roblox API calls are isolated so that they can behave as nice pure functions with no annoying code execution side effects.
   - This explicit state machine design is a reaction to the common programming style in Roblox that makes heavy use of fibers ("coroutines" / "threads") and derived constructs (like promises). This programming style complicates code execution a lot and makes it hard to guarantee robustness, especially when there are many different sources of input into the implicit state machine as is the case with DataStore systems.
-
-For reading the code, I recommend a tab width of 3 since that's what I wrote it with (and my Luau formatting style depends on tab width). Unfortunately GitHub does not provide this tab widh as an option in their UI, but you can get it for a particular file by appending `?ts=3` to the end of the file's URL.
 
 ## Realistic Example
 
