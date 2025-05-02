@@ -60,7 +60,7 @@ RunService.Heartbeat:Connect(function()
   for UserId, Locker in Lockers do
 
 	-- Let's give our player one gold for every frame
-	-- they spend in game!
+	-- they spend in-game!
 	if Locker.LodStatus == SessionLocker.LoadStatus.loaded then
 		Locker.SaveData.Gold += 1
 	end
