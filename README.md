@@ -21,7 +21,7 @@ Some important things to note about the design of this library:
 
 For reading the code, I recommend a tab width of 3 since that's what I wrote it with (and my Luau formatting style depends on tab width). Unfortunately GitHub does not provide this in their dropdown, but you can get it for a particular file by appending `&ts=3` to the end of the file's URL on GitHub.
 
-## Minimal Example
+## Realistic Example
 
 ```luau
 --!strict
