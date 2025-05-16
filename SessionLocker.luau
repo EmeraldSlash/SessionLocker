@@ -6,8 +6,36 @@
 --
 -- Created by Rio Manson-Hay (@EmeraldSlash)
 --
--- Version: 1 (2025-05-02)
+-- Version: 3 (2025-05-16)
 --
+-- Change Log:
+--
+-- Version 1: Initial version.
+--
+-- Version 2:
+--
+-- >> (See @DisableAPIs) After the SaveData table has been created for the first
+-- time, it will never be replaced if DisableAPIs is enabled. Useful when 
+-- usage code wants permanently customize save data for fake players or testing 
+-- purposes or whatever.
+--
+-- Version 3:
+--
+-- >> Added .LogErrorVariations() which can be used to log variations of an 
+-- error message so that the error will be aggregated in the experience's Error 
+-- Report and then more specific variations can be specifically searched for.
+--
+-- >> Added .GsubFilter() which can be used to filter out specific information 
+-- from logs, so that they get aggregated in the experience's Error Report.
+--
+-- >> Added .TableRestoreBackup() which can be used to restore a table to an older
+-- version of itself (that was previously deep copied using .TableDeepCopy).
+--
+-- >> Added .LockerSpecConfig() function for querying the value of a LockerSpec 
+-- config value in the same way that the module does it.
+--
+-- >> Added .GetRequestErrorKind() function and .RequestErrorKind enum, used
+-- for making decisions based on DataStore request errors.
 
 local Module = {}
 
@@ -28,25 +56,30 @@ local Module = {}
 --
 -- .ProductProcessOp
 -- .LoadStatus
+-- .RequestErrorKind
 --
--- Global default functions & configs:
+-- Global default configs & callbacks:
 --
 -- (These may also be defined in LockerSpecs, and the ones in LockerSpecs will
 -- override these global ones.)
 --
--- .Default_ReportDataStoreError()
--- .Default_SessionLockLost()
 -- .Default_VerboseLogs
 -- .Default_ReadOnlyDataStores
 -- .Default_MaintainSessionPeriod
 -- .Default_SessionExpiry
 -- .Default_SessionRetryCooldown
 -- .Default_PurchaseHistoryLimit
+-- .Default_ReportDataStoreError()
+-- .Default_SessionLockLost()
 --
 -- Functions:
 --
+-- .LockerSpecConfig()
 -- .TableDeepCopy()
+-- .TableRestoreBackup()
+-- .LogErrorVariations()
 -- .LogPrefixCreate()
+-- .GetRequestErrorKind()
 -- .MarkShouldAcquire()
 -- .MarkShouldRelease()
 -- .MarkShouldSave()
@@ -63,6 +96,49 @@ local Module = {}
 -- .UpdateSession() (returns true when session should be removed)
 -- .UpdateEverything() (combines the above .Update*() functions)
 --
+
+--
+-- // Callback details
+--
+-- There are two important details about how callbacks are handled by this 
+-- module.
+--
+-- 1. @CallbackCallingConvention
+--
+-- To avoid unnecessary proliferation of units of code execution, all callbacks 
+-- will be called directly i.e. without task.spawn(), pcall(), or any other 
+-- wrappers.
+--
+-- This means you MUST avoid yielding or throwing errors in ALL callbacks, as it
+-- will break the module's code. If you need to yield, you should put a 
+-- task.spawn() inside your callback, or find some other means to perform work 
+-- asynchronously. If you feel about unsure errors, just wrap the body of your 
+-- callbacks in a pcall.
+--
+-- Wrapper code for code execution is trivial, or in the case where it isn't, 
+-- it's highly specific to your game and code architecture, so generally the 
+-- module does not provide any out of-the-box. You can create those yourself to 
+-- suit your own needs.
+--
+-- 2. @CallbackTableMutation
+--
+-- Secondly, to avoid lots of unnecessary memory copying and weird table 
+-- identification issues, tables are always passed directly into callbacks
+-- without modification.
+--
+-- If a callback is expected to modify or perform some operation on a table (in 
+-- the case of this module, it's usually a SaveData table), the callback is 
+-- expected to mutate the input table (and does not need to return it), rather 
+-- than return a new table.
+--
+-- // Logging details
+
+-- You may want to log things in different ways, so generally the module tries 
+-- to give you as much control over logging as possible. DataStore errors are 
+-- logged via the LockerSpec.ReportDataStore callback.
+--
+-- The module also has some internal vorbose logging which can be enabled for 
+-- debugging/testing purposes. Its use is largely intended to be for myself.
 
 --
 -- // Defining LockerSpec
@@ -106,17 +182,24 @@ export type LockerSpec = {
 	--
 	-- If an optional function is not provided, some functions have a default 
 	-- version Module.Default_* which you can have a look at. Also see 
-	-- @CallbackCallingConvention
+	-- @CallbackCallingConvention and @CallbackTableMutation
 	
 	-- This function will be used to report common boring errors that are 
 	-- specifically related to backend or network communication failures, and are
 	-- generally not relevant for our own code.
+	--
+	-- In addition to the arguments provided, other relevant fields can be
+	-- retrieved from the LockerState argument, most notably:
+	--
+	-- .DataStore
+	-- .DataStoreKey
+	-- .AssociatedUserIds
+	-- .LogPrefix
+	--
 	ReportDataStoreError: ((
-		ErrorMessage: string,
-		DataStore: DataStore,
+		LS: LockerState,
 		OperationName: string,
-		DataStoreKey: string,
-		AssociatedUserIds: {number}
+		ErrorMessage: string
 	)->())?;
 	
 	-- This function will be called when a session lock is lost.
@@ -209,7 +292,8 @@ export type LockerSpec = {
 	-- Optional configuration values
 	--
 	-- If a value is nil, then the corresponding Module.Default_* value will be 
-	-- used instead.
+	-- used instead. You can use .LockerSpecConfig() function to query these
+	-- the same way that the module checks them.
 	
 	VerboseLogs: boolean?;
 	ReadOnlyDataStores: boolean?;
@@ -218,6 +302,11 @@ export type LockerSpec = {
 	SessionRetryCooldown: number?;
 	PurchaseHistoryLimit: number?;
 }
+
+-- Function used for checking if a configuration value is set.
+function Module.LockerSpecConfig<T>(Config: T?, Default: T): T
+	return if Config ~= nil then Config else Default
+end
 
 -- // Typechecking
 --
@@ -462,60 +551,6 @@ end
 --
 
 --
--- Default options
---
-
--- @CallbackCallingConvention To avoid unnecessary proliferation of units of 
--- code execution, all callbacks will be called directly without task.spawn() or
--- pcall(). This means you must avoid yielding or throwing errors in callbacks.
--- If you need to yield, you can put a task.spawn() inside your callback. Such 
--- wrapping is expected to be common if your code architecture is different from
--- the design of this library, or if you are unsure whether errors will be 
--- thrown or not.
-
-Module.Default_ReportDataStoreError = function(
-	ErrorMessage: string,
-	DataStore: DataStore,
-	OperationName: string,
-	DataStoreKey: string,
-	AssociatedUserIds: {number}
-)
-	warn(debug.traceback("[SessionLocker] "..tostring(ErrorMessage)))
-end
-
-Module.Default_SessionLockLost = function(
-	LS: LockerState
-)
-	for _, UserId in LS.AssociatedUserIds do
-		local Player = game.Players:GetPlayerByUserId(UserId)
-		if Player then
-			Player:Kick("Save data session lock has been lost. Please tell the developer.")
-		end
-	end
-end
-
-Module.Default_VerboseLogs = false
-
--- If set to true, DataStores will be read from but never modified. Session 
--- locks pretend to be obtained, but they haven't actually been obtained. 
-Module.Default_ReadOnlyDataStores = false
-
--- Maximum duration save data is allowed to go without saving to maintain the 
--- server's session lock.
-Module.Default_MaintainSessionPeriod = 5*60
-
--- Other servers will be able to claim the session if the session lock is not 
--- updated for this period of time.
-Module.Default_SessionExpiry = 30*60
-
--- How long to wait between failed header requests.
-Module.Default_SessionRetryCooldown = 10
-
--- How many entries can be stored in purchase history before old purchases are
--- forgotten. Avoid changing this unnecessarily as it will affect save data.
-Module.Default_PurchaseHistoryLimit = 100
-
---
 -- Utilities
 --
 
@@ -570,8 +605,72 @@ function Module.TableDeepCopy<T>(Table: T): T
 	return Result.Table
 end
 
--- Make a nice log prefix :)
+-- Use this for restoring a table to an older backup of itself (created using 
+-- .TableDeepCopy with the original table before making modifications to it).
+function Module.TableRestoreBackup<A,B,C,D>(
+	Table: {[A]: B},
+	Backup: {[C]: D}
+): {[C]: D}
+	table.clear(Table)
+	local _Table: {[C]: D} = Table :: any 
+	for Key, Value in Backup do
+		_Table[Key] = Value
+	end
+	return _Table
+end
+
+-- Logs variations of a task's error message. The variations will be 
+-- with/without the traceback, and with/without the detailed error message.
+--
+-- This means that even if the error message or traceback contains highly 
+-- specific, infrequent information (such as a specific player's UserId), the 
+-- variations of the error without that information will still be aggregated by 
+-- the experience's Error Report so you can easily find out that the error is 
+-- happening. Once you know it is happening, you should be able to filter the 
+-- Error Report using the Identifier argument you gave to the log.
+--
+function Module.LogErrorVariations(Identifier: string, ErrorMessage: string)
+	local LogPlain = ("%s failed")
+		:format(Identifier)
+	local LogError = ("%s failed with error:\n%s")
+		:format(Identifier, tostring(ErrorMessage))
+	local Traceback = debug.traceback()
+	
+	warn(LogPlain)
+	warn(LogPlain.."\n"..Traceback)
+	warn(LogError)
+	warn(LogError.."\n"..Traceback)
+end
+
+-- An alternative way to get your logs to be aggreggated by the Error Report 
+-- aggregation is to filter out user IDs and other specific information from 
+-- error messages using string.gsub().
+--
+-- This function achieves that using an array of filters, e.g. you might
+-- use it like:
+--[[
+warn(SessionLocker.GsubFilter(Message, {
+	{tostring(Player.UserId), "{userid}"};
+	{Player.Name, "{username}"};
+}))
+--]]
+function Module.GsubFilter(Message: string, Filters: {{string}})
+	local Final = Message
+	for _, Filter in Filters do
+		if type(Filter[1]) == "string" and
+			type(Filter[2]) == "string"
+		then
+			Final = Final:gsub(Filter[1], Filter[2])
+		end
+	end
+	return Final
+end
+
+-- Make a nice log prefix which will be used in verbose logs and any code which
+-- decides to use the LockerState.LogPrefix field.
 function Module.LogPrefixCreate(
+	ShowModule: boolean,
+	
 	RealUserId: number,
 	
 	-- If UserId used for DataStore is different from the player's actual UserId 
@@ -584,6 +683,9 @@ function Module.LogPrefixCreate(
 	Name: string?
 )
 	local Str = {}
+	if ShowModule then
+		Str[#Str+1] = "[SessionLocker]"
+	end
 	if Name then
 		Str[#Str+1] = ("[%s]:"):format(Name)
 	end
@@ -593,6 +695,153 @@ function Module.LogPrefixCreate(
 		Str[#Str+1] = ("[%d]"):format(RealUserId)
 	end
 	return table.concat(Str)
+end
+
+-- A way of categorizing DataStore request errors based on the message returned 
+-- by pcall(). 
+--
+-- Based on the table of error codes from:
+-- https://create.roblox.com/docs/cloud-services/datastores
+--
+-- (Note: The table has since been removed from that page, so I guess Roblox 
+-- isn't committed to supporting these error codes.)
+--
+-- Lower values mean the issue is on our end, higher values mean issue is on 
+-- Roblox's end.
+
+Module.RequestErrorKind = {
+	-- Errors relating to our code (shouldn't retry, should log).
+	script = 1;
+	
+	-- Errors that may be temporary or are unknown (should retry, but maybe not 
+	-- indefinitely, and should log).
+	misc = 2;
+	
+	-- Errors relating to request limits or Roblox server issues (should retry 
+	-- indefinitely, and shouldn't log).
+	backend = 3;
+}
+
+-- @UpdateAsyncTransformFunction Luau errors that occur inside an UpdateAsync 
+-- transform function will not throw an error on the calling thread. Instead, 
+-- the UpdateAsync will succeed, so the error will not be detectable by the 
+-- pcall(). Instead, you will need to manually detect such errors by having a 
+-- "transform success" variable (or equivalent) that gets set to "true" right 
+-- before returning from the transform function. This variable must also be 
+-- reset to "false" INSIDE the transform function every time it runs, because 
+-- the transform function may be called multiple times for a single call of 
+-- :UpdateAsync().
+
+function Module.GetRequestErrorKind(PcallMessage: string): number
+	local Result: number
+
+	local DSE_S = Module.RequestErrorKind.script
+	local DSE_B = Module.RequestErrorKind.backend
+	local DSE_M = Module.RequestErrorKind.misc
+
+	if PcallMessage then
+		local ErrorCode = string.match(PcallMessage, "^(%d+):")
+		if ErrorCode then
+			local FirstChar = string.sub(ErrorCode, 1, 1)
+			if FirstChar == "1" then
+				Result = DSE_S
+			elseif FirstChar == "3" then
+				Result = DSE_B
+			elseif FirstChar == "4" then
+				if ErrorCode == "404" then
+					Result = DSE_M
+				else
+					Result = DSE_S
+				end
+			elseif FirstChar == "5" then
+				local Lookup = {
+					["501"] = DSE_M;
+					["502"] = DSE_B;
+					["503"] = DSE_M;
+					["504"] = DSE_M;
+					["505"] = DSE_M;
+					["511"] = DSE_S;
+					["512"] = DSE_S;
+					["513"] = DSE_S;
+					["514"] = DSE_S;
+				}
+				local Kind = Lookup[ErrorCode]
+				if Kind then
+					Result = Kind
+				end
+			end
+		end
+	end
+
+	if not Result then
+		Result = DSE_M
+		-- Always warn when an unknown DataStore error is encountered.
+		warn(debug.traceback(("Unknown DataStore error: \"%s\""):format(PcallMessage)))
+	end
+
+	return Result
+end
+
+--
+-- Default options
+--
+
+Module.Default_VerboseLogs = false
+
+-- If set to true, DataStores will be read from but never modified. Session 
+-- locks pretend to be obtained, but they haven't actually been obtained. 
+Module.Default_ReadOnlyDataStores = false
+
+-- Maximum duration save data is allowed to go without saving to maintain the 
+-- server's session lock.
+Module.Default_MaintainSessionPeriod = 5*60
+
+-- Other servers will be able to claim the session if the session lock is not 
+-- updated for this period of time.
+Module.Default_SessionExpiry = 30*60
+
+-- How long to wait between failed header requests.
+Module.Default_SessionRetryCooldown = 10
+
+-- How many entries can be stored in purchase history before old purchases are
+-- forgotten. Avoid changing this unnecessarily as it will affect save data.
+Module.Default_PurchaseHistoryLimit = 100
+
+Module.Default_ReportDataStoreError = function(
+	LS: LockerState,
+	OperationName: string,
+	ErrorMessage: string
+)
+	local Message = " ReportDataStoreError:\n"..tostring(ErrorMessage)
+	
+	-- If verbose logs are enabled, we give the error message with full details.
+	local LSpec: LockerSpec = LS.LockerSpec
+	if Module.LockerSpecConfig(LSpec.VerboseLogs, Module.Default_VerboseLogs) then
+		local LogPrefix: string = LS.LogPrefix
+		warn(LS.LogPrefix..Message)
+		
+	-- Otherwise, we filter out all identifying information and just give the
+	-- generic message, if it isn't a known backend error.
+	elseif Module.GetRequestErrorKind(ErrorMessage) < Module.RequestErrorKind.backend then
+		
+		local Filters = {}
+		for _, UserId in LS.AssociatedUserIds do
+			Filters[#Filters+1] = {tostring(UserId), "{userid}"}
+		end
+		Filters[#Filters+1] = {LS.DataStoreKey, "{datastorekey}"}
+		warn("[SessionLocker]"..Module.GsubFilter(Message, Filters))
+	end
+end
+
+Module.Default_SessionLockLost = function(
+	LS: LockerState
+)
+	for _, UserId in LS.AssociatedUserIds do
+		local Player = game.Players:GetPlayerByUserId(UserId)
+		if Player then
+			Player:Kick("Save data session lock has been lost. Please tell the developer.")
+		end
+	end
 end
 
 --
@@ -864,8 +1113,19 @@ function Module.SessionReset(LS: LockerState)
 	LS.ChangeId_PendingForce = 0
 	LS.ChangeId_Saved = 0
 	
+	--[[ @DisableAPIs:ReplaceSaveData
 	-- Use default save data before anything has loaded.
 	LS.SaveData = UseSaveDataCreator(LS.LockerSpec, LS.LogPrefix)
+	--]]
+	---[[ @DisableAPIs:MaintainSaveData
+	-- If DisableAPIs is enabled, the save data table should never get replaced
+	-- after it has been created for the first time.
+	if not LS.DisableAPIs or not LS.SaveData then
+		
+		-- Use default save data before anything has loaded.
+		LS.SaveData = UseSaveDataCreator(LS.LockerSpec, LS.LogPrefix)
+	end
+	--]]
 	
 	if LS.LockerSpec.SaveDataReplaced then
 		LS.LockerSpec.SaveDataReplaced(LS, LS.SaveData)
@@ -888,7 +1148,7 @@ function Module.LockerCreate(
 	LS.AssociatedUserIds = AssociatedUserIds
 	LS.LockerSpec = LockerSpec
 	LS.DataStoreKey = DataStoreKey 
-	LS.LogPrefix = LogPrefix or DataStoreKey
+	LS.LogPrefix = LogPrefix or ("[SessionLocker]["..DataStoreKey.."]")
 	LS.DisableAPIs = DisableAPIs
 	LS.InUse = false
 	LS.PendingProductPurchases = {}
@@ -907,7 +1167,7 @@ function Module.LockerCreatePlayer(
 		LockerSpec,
 		DataStoreKey or string.format("%i", Player.UserId),
 		{Player.UserId},
-		LogPrefix or Module.LogPrefixCreate(Player.UserId),
+		LogPrefix or Module.LogPrefixCreate(true, Player.UserId),
 		DisableAPIs)
 end
 
@@ -1014,10 +1274,6 @@ end
 -- Internal stuff (2)
 --
 
-local function CheckValue<T>(A: T?, B: T)
-	return if A ~= nil then A else B
-end
-
 local function DoMigration(
 	LogPrefix: string,
 	Data: {Version: number, VersionPatch: number},
@@ -1046,13 +1302,15 @@ local function DoMigration(
 	if (type(Data.Version) ~= "number") or
 		(type(Data.VersionPatch) ~= "number")
 	then
-		warn(("%s Invalid %s version (type is not 'number'). Version: '%s' (type '%s'), VersionPatch: '%s' (type '%s')."):format(
-			LogPrefix,
-			LogDataIdentifier,
-			tostring(Data.Version),
-			type(Data.Version),
-			tostring(Data.VersionPatch),
-			type(Data.VersionPatch)))
+		if VerboseLogs then
+			warn(("%s Invalid %s version (type is not 'number'). Version: '%s' (type '%s'), VersionPatch: '%s' (type '%s')."):format(
+				LogPrefix,
+				LogDataIdentifier,
+				tostring(Data.Version),
+				type(Data.Version),
+				tostring(Data.VersionPatch),
+				type(Data.VersionPatch)))
+		end
 		Success = false
 		
 	else
@@ -1073,6 +1331,9 @@ local function DoMigration(
 				Data.Version += 1
 				
 			else
+				-- @TODO This log here may be useful for users of the library to 
+				-- debug problems. Should it be turned into more than just an 
+				-- internal thing?
 				if VerboseLogs then
 					warn(("%s Invalid %s version (it doesn't have a migrator). Version is '%s_%s', original version is '%s_%s', server version is '%s'."):format(
 						LogPrefix,
@@ -1109,15 +1370,24 @@ local function SLS_Job(
 )
 	local Result = {} :: SLS_Result
 	
-	local LockerSpec = LS.LockerSpec
+	local LSpec = LS.LockerSpec
 	
 	if LS.DisableAPIs then
+		--[[ @DisableAPIs:ReplaceSaveData
 		Result.SaveData = UseSaveDataCreator(LockerSpec, LS.LogPrefix)
+		--]]
+		---[[ @DisableAPIs:MaintainSaveData
+		-- Keep the same template save data, so any changes to it don't get 
+		-- replaced (e.g. if the usage code wanted to customize the save data of 
+		-- fake players).
+		Result.SaveData = LS.SaveData
+		--]]
 		Result.SaveData.Session = SessionCreate()
 		Result.LoadStatus = LoadStatus.loaded
 		
 	else
 		
+		-- See @UpdateAsyncTransformFunction
 		local TransformedResult: SLS_Result? = nil
 
 		local function TransformFunction(
@@ -1129,13 +1399,13 @@ local function SLS_Job(
 			local NewResult = {} :: SLS_Result
 			
 			if not RemoteSD then
-				NewResult.SaveData = UseSaveDataCreator(LockerSpec, LS.LogPrefix)
+				NewResult.SaveData = UseSaveDataCreator(LSpec, LS.LogPrefix)
 				NewResult.SaveData.Session = SessionCreate()
 				NewResult.LoadStatus = LoadStatus.loaded
 				
 			else
 				if (RemoteSD.Session) and
-					(not SessionExpired(RemoteSD.Session, LockerSpec))
+					(not SessionExpired(RemoteSD.Session, LSpec))
 				then
 					NewResult.LoadStatus = LoadStatus.session_is_locked
 					
@@ -1144,10 +1414,11 @@ local function SLS_Job(
 						LS.LogPrefix,
 						RemoteSD,
 						"SaveData",
-						LockerSpec.SaveDataVersion,
-						LockerSpec.SaveDataMigrators,
-						LockerSpec.SaveDataPatchers,
-						CheckValue(LockerSpec.VerboseLogs, Module.Default_VerboseLogs))
+						LSpec.SaveDataVersion,
+						LSpec.SaveDataMigrators,
+						LSpec.SaveDataPatchers,
+						Module.LockerSpecConfig(
+							LSpec.VerboseLogs, Module.Default_VerboseLogs))
 					
 					if not MigrateSuccess then
 						NewResult.LoadStatus = LoadStatus.invalid_version
@@ -1164,7 +1435,8 @@ local function SLS_Job(
 			TransformedResult = NewResult
 			
 			if (NewResult.LoadStatus == LoadStatus.loaded) and
-				(not CheckValue(LockerSpec.ReadOnlyDataStores, Module.Default_ReadOnlyDataStores))
+				(not Module.LockerSpecConfig(
+					LSpec.ReadOnlyDataStores, Module.Default_ReadOnlyDataStores))
 			then
 				-- Note: If saving is disabled then the code making the request cannot 
 				-- rely on the returned SaveData having particular values set by the 
@@ -1176,23 +1448,18 @@ local function SLS_Job(
 		end
 		
 		local RequestSuccess, RequestMessage = pcall(function()
-			Result.SaveData = LockerSpec.DataStore:UpdateAsync(
+			Result.SaveData = LSpec.DataStore:UpdateAsync(
 				LS.DataStoreKey,
 				TransformFunction)
 		end)
 		
-		-- If request failed then we just do nothing except report the error if
-		-- it's nontrivial.
+		-- If request failed then we just do nothing except report the error.
 		if not RequestSuccess then
 			Result.LoadStatus = LoadStatus.data_store_request_fail
 			
-			if LockerSpec.ReportDataStoreError then
-				LockerSpec.ReportDataStoreError(
-					RequestMessage,
-					LockerSpec.DataStore,
-					"UpdateAsync_Load",
-					LS.DataStoreKey,
-					LS.AssociatedUserIds)
+			if LSpec.ReportDataStoreError then
+				LSpec.ReportDataStoreError(
+					LS, "UpdateAsync_Load", RequestMessage)
 			end
 		
 		elseif not TransformedResult then
@@ -1205,8 +1472,9 @@ local function SLS_Job(
 			-- If saving is not enabled (i.e. the UpdateAsync transform function 
 			-- returned nil, cancelling the update) then the data won't have been 
 			-- returned by UpdateAsync, so we need to manually set it here.
-			if (CheckValue(LockerSpec.ReadOnlyDataStores, Module.Default_ReadOnlyDataStores)) and
-				(TransformedResult.LoadStatus == LoadStatus.loaded)
+			if (TransformedResult.LoadStatus == LoadStatus.loaded) and
+				(Module.LockerSpecConfig(
+					LSpec.ReadOnlyDataStores, Module.Default_ReadOnlyDataStores))
 			then
 				Result.SaveData = TransformedResult.SaveData
 			end
@@ -1223,7 +1491,7 @@ local function PerformSessionLoad(
 	HeartbeatNow: number,
 	LoadNewSession: boolean
 )
-	local LockerSpec = LS.LockerSpec
+	local LSpec = LS.LockerSpec
 	
 	while true do
 		local SLS = LS.SessionLoadState :: SessionLoadState 
@@ -1268,21 +1536,20 @@ local function PerformSessionLoad(
 				SLS.NextAttemptAt = math.huge
 				LS.LoadMinimumServerVersion = Result.MinimumServerVersion
 				if Changed and
-					LockerSpec.LoadStatusChanged
+					LSpec.LoadStatusChanged
 				then
-					LockerSpec.LoadStatusChanged(LS)
+					LSpec.LoadStatusChanged(LS)
 				end
 				
 			-- If the load failed for a different reason then we just keep 
 			-- retrying.
 			elseif Result.LoadStatus ~= LoadStatus.loaded then
-				SLS.NextAttemptAt =
-					HeartbeatNow +
-					CheckValue(LockerSpec.SessionRetryCooldown, Module.Default_SessionRetryCooldown)
+				SLS.NextAttemptAt = HeartbeatNow + Module.LockerSpecConfig(
+					LSpec.SessionRetryCooldown, Module.Default_SessionRetryCooldown)
 				if Changed and
-					LockerSpec.LoadStatusChanged
+					LSpec.LoadStatusChanged
 				then
-					LockerSpec.LoadStatusChanged(LS)
+					LSpec.LoadStatusChanged(LS)
 				end
 			
 			-- Otherwise if the load succeeded, we can be happy.
@@ -1294,28 +1561,28 @@ local function PerformSessionLoad(
 				local SS: SessionState = {
 					Session = SD.Session;
 					SaveData = SD;
-					AutosaveAt =
-						HeartbeatNow +
-						CheckValue(LockerSpec.MaintainSessionPeriod, Module.Default_MaintainSessionPeriod);
+					AutosaveAt = HeartbeatNow + Module.LockerSpecConfig(
+						LSpec.MaintainSessionPeriod, Module.Default_MaintainSessionPeriod);
 					SavingProductPurchases = {};
 				}
 				LS.SessionState = SS
 				
 				-- Merge local changes into the new save data table.
-				if LockerSpec.MergeOfflineSaveDataWithLoadedSaveData then
-					LockerSpec.MergeOfflineSaveDataWithLoadedSaveData(LS, LS.SaveData, SD)
+				if LSpec.MergeOfflineSaveDataWithLoadedSaveData then
+					LSpec.MergeOfflineSaveDataWithLoadedSaveData(
+						LS, LS.SaveData, SD)
 				end
 				
 				LS.SaveData = SD
 				LS.SessionLoadState = nil
 				
-				if LS.LockerSpec.SaveDataReplaced then
-					LS.LockerSpec.SaveDataReplaced(LS, LS.SaveData)
+				if LSpec.SaveDataReplaced then
+					LSpec.SaveDataReplaced(LS, LS.SaveData)
 				end
 				if Changed and
-					LockerSpec.LoadStatusChanged
+					LSpec.LoadStatusChanged
 				then
-					LockerSpec.LoadStatusChanged(LS)
+					LSpec.LoadStatusChanged(LS)
 				end
 				
 				break
@@ -1329,7 +1596,7 @@ local function SSS_Job(
 	SS: SessionState,
 	SSS: SessionSaveState
 )
-	local LockerSpec = LS.LockerSpec
+	local LSpec = LS.LockerSpec
 	
 	if LS.DisableAPIs then
 		SSS.Result = {
@@ -1341,6 +1608,7 @@ local function SSS_Job(
 		}
 	else
 		
+		-- See @UpdateAsyncTransformFunction
 		local TransformSuccess = false
 		local TransformChangeId: number = nil
 		local TransformSessionReleased: boolean = nil
@@ -1353,7 +1621,7 @@ local function SSS_Job(
 			
 			-- TransformSD should be suitable to completely overwrite RemoteSD, 
 			-- except for remote changes which will get moved into TransformSD.
-			local TransformSD = UseSaveDataCreator(LockerSpec, LS.LogPrefix)
+			local TransformSD = UseSaveDataCreator(LSpec, LS.LogPrefix)
 			
 			TransformChangeId = ChangeId
 			TransformSessionReleased = SSS.ShouldReleaseSession
@@ -1391,8 +1659,10 @@ local function SSS_Job(
 		local NewPSD
 		
 		local RequestSuccess, RequestMessage = pcall(function()
-			if not CheckValue(LockerSpec.ReadOnlyDataStores, Module.Default_ReadOnlyDataStores) then
-				NewPSD = LockerSpec.DataStore:UpdateAsync(
+			if not Module.LockerSpecConfig(
+					LSpec.ReadOnlyDataStores, Module.Default_ReadOnlyDataStores)
+			then
+				NewPSD = LSpec.DataStore:UpdateAsync(
 					LS.DataStoreKey,
 					TransformFunction)
 			else
@@ -1408,13 +1678,9 @@ local function SSS_Job(
 		-- it's nontrivial.
 		if not RequestSuccess then
 			
-			if LockerSpec.ReportDataStoreError then
-				LockerSpec.ReportDataStoreError(
-					RequestMessage,
-					LockerSpec.DataStore,
-					"UpdateAsync_Save",
-					LS.DataStoreKey,
-					LS.AssociatedUserIds)
+			if LSpec.ReportDataStoreError then
+				LSpec.ReportDataStoreError(
+					LS, "UpdateAsync_Save", RequestMessage)
 			end
 		end
 		
@@ -1436,7 +1702,7 @@ local function PerformSessionSave(
 	CanBeginNewSave: boolean,
 	ShouldReleaseSession: boolean
 )
-	local LockerSpec = LS.LockerSpec
+	local LSpec = LS.LockerSpec
 	
 	while true do
 		local SSS = SS.SessionSaveState :: SessionSaveState
@@ -1483,9 +1749,8 @@ local function PerformSessionSave(
 			SSS.NextAttemptAt = -math.huge
 			
 			if not Result.RequestSuccess then
-				SSS.NextAttemptAt =
-					HeartbeatNow +
-					CheckValue(LockerSpec.SessionRetryCooldown, Module.Default_SessionRetryCooldown)
+				SSS.NextAttemptAt = HeartbeatNow + Module.LockerSpecConfig(
+					LSpec.SessionRetryCooldown, Module.Default_SessionRetryCooldown)
 				
 			elseif Result.LostSessionLock then
 				warn(("%s Save data session lock has been lost.")
@@ -1494,8 +1759,8 @@ local function PerformSessionSave(
 				SS.SessionSaveState = nil
 				Module.SessionReset(LS)
 				
-				if LockerSpec.SessionLockLost then
-					LockerSpec.SessionLockLost(LS)
+				if LSpec.SessionLockLost then
+					LSpec.SessionLockLost(LS)
 				end
 				
 				break
@@ -1530,9 +1795,8 @@ local function PerformSessionSave(
 				else
 					assert(Result.SessionAt)
 					SS.Session.UpdatedAt = Result.SessionAt
-					SS.AutosaveAt =
-						HeartbeatNow +
-						CheckValue(LockerSpec.MaintainSessionPeriod, Module.Default_MaintainSessionPeriod)
+					SS.AutosaveAt = HeartbeatNow + Module.LockerSpecConfig(
+						LSpec.MaintainSessionPeriod, Module.Default_MaintainSessionPeriod)
 				end
 				
 				SS.SessionSaveState = nil
@@ -1590,7 +1854,7 @@ function Module.UpdatePendingProductPurchases(LS: LockerState, HeartbeatNow)
 				LS.ChangeId_PendingForce = LS.ChangeId_Pending
 				
 				-- Add the product to purchase history.
-				local Limit = CheckValue(
+				local Limit = Module.LockerSpecConfig(
 					LS.LockerSpec.PurchaseHistoryLimit,
 					Module.Default_PurchaseHistoryLimit)
 				if SD.Purchases[Limit] then
@@ -1729,7 +1993,7 @@ function Module.EasyCreate(
 		ProductCreditChanged = Instance.new("BindableEvent");
 	}
 	
-	local LockerSpec: LockerSpec = {
+	local LSpec: LockerSpec = {
 		DataStore = game:GetService("DataStoreService"):GetDataStore("SessionLocker_SaveData");
 		SaveDataVersion = 1;
 		SaveDataMigrators = {};
@@ -1765,7 +2029,7 @@ function Module.EasyCreate(
 		end;
 	}
 	
-	local LS = Module.LockerCreatePlayer(LockerSpec, Player) :: EasyLockerState
+	local LS = Module.LockerCreatePlayer(LSpec, Player) :: EasyLockerState
 	Module.MarkShouldAcquire(LS)
 	
 	LS.Bindables = Bindables
