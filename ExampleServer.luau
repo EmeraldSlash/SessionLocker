@@ -184,7 +184,7 @@ game:BindToClose(function()
 	end
 end)
 
-
+-- This is typically a ModuleScript in ReplicatedStorage shared by server and client.
 local Shared = {
 	ProductId = {
 		ExampleProduct = -1;	
