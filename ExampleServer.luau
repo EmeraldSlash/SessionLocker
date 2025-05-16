@@ -229,13 +229,13 @@ MarketplaceService.ProcessReceipt = function(
 	return Result
 end
 
-local function AttemptUseProductCredit(PS: PlayerState, ProductId: number): boolean
+local function AttemptUseProductCredit(PS: PlayerState, ProductId: number, Count: number): boolean
 	local UsedCredit = false
 	if PS.InfiniteProductCredit then
 		UsedCredit = true
 	else
 		UsedCredit = SessionLocker.ProductCreditUse(
-			PS.SessionLockerState, ProductId, 1)
+			PS.SessionLockerState, ProductId, Count)
 	end
 	return UsedCredit
 end
@@ -249,7 +249,7 @@ local function RequestProductPurchase(Player: Player, ProductId: number)
 			ProcessFunction and
 			ProcessFunction(SessionLocker.ProductProcessOp.validate, LS, ProductId)
 		then
-			if AttemptUseProductCredit(PS, ProductId) then
+			if AttemptUseProductCredit(PS, ProductId, 1) then
 				ProcessFunction(SessionLocker.ProductProcessOp.apply, LS, ProductId)
 			else
 				MarketplaceService:PromptProductPurchase(Player, ProductId)
