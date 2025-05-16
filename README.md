@@ -6,8 +6,12 @@ For reading the code, I recommend a tab width of 3 since that's what I wrote it 
 
 At the moment, this library provides:
 - DataStore session locking, including session reuse capabilities
-- Save data version migration & patching facilities
+- Save data version migration & patching, and merging offline save data into online save data
 - Safe Developer Product processing, credit, and purchase history
+
+The library intentionally does not provide (see the Design section below for discussion):
+- Client/server replication of save data
+- Change signals/callbacks/detection for individual fields of save data
 
 Future plans:
 - Add support for remote changes (operations that can be remotely applied to locked DataStore keys by other game servers)
@@ -21,6 +25,7 @@ Future plans:
   - Getting `LockerState.SaveData` casted into the actual SaveData type defined by the user with minimal friction (and accessing the save data in the first place might be annoyance for some people if they'd like to store it in more convenient place)
 - Figure out how to deal with DataStore request limits. Should there be some kind of API for saying whether a particular DataStore request is allowed to happen or not, so that game code can control DataStore budget usage?
 - Better error checking & messages so that the library has good human error UX
+- Data serialization/deserialization - users should be able to convert between their "live" data representation and their "stored" data representation before data is saved and after it is loaded. I guess the library shouldn't own the save data at all, it should just ask for the save data whenever it wants to save? How should product purchasing stuff and other internal usages of the save data table be handled though?
 
 ## Design
 
@@ -36,6 +41,7 @@ There are some common limitations in Roblox DataStore libraries that I am trying
 - All code execution can be controlled by the usage code (except for isolated operations without side effects). But the library can still have _optional_ convenience APIs which execute code on their own, if the user doesn't care.
 - Complicated pipelines are explicitly implemented as state machines so that they can be easily comprehended by humans and turned into isolated reusable units of code. At the moment the library's state machines are reevaluated every frame, which is fine at the moment: there are no performance problems. If necessary the state machines can be reevaluated less frequently in the future, but I haven't added this capability yet. Blocking Roblox API calls are isolated so that they can behave as nice pure functions with no annoying code execution side effects.
   - This explicit state machine design is a reaction to the common programming style in Roblox that makes heavy use of fibers ("coroutines" / "threads") and derived constructs (like promises). That programming style complicates code execution and makes it hard to guarantee robustness, especially when there are many different sources of input into the implicit state machine. In the case of DataStore state machines, they have inputs coming from game code modifying save data or requesting data to be saved, players joining and leaving the game, the success or failure of various DataStore operations (also related to DataStore request limits), and the steady, unstoppable advancement of time.
+-
 
 ## Usage Example
 
