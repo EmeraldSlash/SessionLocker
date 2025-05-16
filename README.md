@@ -37,6 +37,7 @@ There are some common limitations in Roblox DataStore libraries that I am trying
 - A library couples DataStore logic with client/server replication and specific data modification & change detection approaches, which forces particular code architectures and increases abstraction.
 
  To avoid these pitfalls, note these following aspects of the library's design:
+- The library should be thought of as a backend that is relatively neutral about architectural details.
 - The use of singletons or globals is avoided so that all inputs can be configured by usage code.
 - All code execution can be controlled by the usage code (except for isolated operations without side effects). But the library can still have _optional_ convenience APIs which execute code on their own, if the user doesn't care.
 - Complicated pipelines are explicitly implemented as state machines so that they can be easily comprehended by humans and turned into isolated reusable units of code. At the moment the library's state machines are reevaluated every frame, which is fine at the moment: there are no performance problems. If necessary the state machines can be reevaluated less frequently in the future, but I haven't added this capability yet. Blocking Roblox API calls are isolated so that they can behave as nice pure functions with no annoying code execution side effects.
