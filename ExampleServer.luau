@@ -210,6 +210,9 @@ MarketplaceService.ProcessReceipt = function(
 		if not PS then
 			-- Wait a frame for PlayerAdded signals to fire, just in case this 
 			-- callback gets executed at the same moment when a player joins.
+			-- I don't actually know if this is necessary, but for some reason
+			-- I am superstitious about it... maybe due to the polling-based
+			-- architecture.
 			task.wait()
 			PS = State.PlayerState_ByUserId[ReceiptInfo.PlayerId]
 		end
