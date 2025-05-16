@@ -95,7 +95,12 @@ local State = {
 
 game:BindToClose(function()
 	State.ServerClosing = true
-	while next(State.Lockers) do task.wait() end
+	for _, Locker in State.Lockers do
+		SessionLocker.MarkShouldRelease(Locker)
+	end
+	while next(State.Lockers) do
+		task.wait()
+	end
 end)
 
 RunService.Heartbeat:Connect(function()
