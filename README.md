@@ -1,6 +1,6 @@
 # SessionLocker
 
-This is a reusable library for using DataStore session locking in Roblox. The system design been used in production code, but this particular codebase has not been battle-tested yet as I have only just just extracted it out into a reusable library for use in an upcoming project.
+This is a library for doing DataStore session locking in Roblox. The system design been used in production code, but this particular codebase has not been battle-tested yet as I have only just just extracted it out into a reusable library for use in an upcoming project.
 
 For reading the code, I recommend a tab width of 3 since that's what I wrote it with (and my Luau formatting style depends on tab width). Unfortunately GitHub does not provide this tab width as a selectable option, but you can get it for a particular file by appending `?ts=3` to the end of the file's URL.
 
