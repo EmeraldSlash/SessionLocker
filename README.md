@@ -6,7 +6,7 @@ For reading the code, I recommend a tab width of 3 since that's what I wrote it 
 
 At the moment, this library provides:
 - DataStore session locking, including session reuse capabilities
-- Facilities fdor save data version migration & patching, and merging offline save data into online save data
+- Facilities for save data version migration & patching, and merging offline save data into online save data
 - Reliable tracking of when save data changes have been saved to DataStore
 - Queuing modifications to save data without having a session lock, then applying those modifications when data loads ("Remote Changes")
 - Safe Developer Product processing, credit, and purchase history
@@ -16,15 +16,15 @@ The library intentionally does not provide (see the Design section below for dis
 - Change signals/callbacks/detection for individual fields of save data
 
 Future plans:
-- Further decouple the Developer Product stuff from the core library, and make its logic more generic so that similar operations can be performed by users of the library.
-- Add some higher granularity usage options for the module's state machines so that if someone doesn't like one part of one particular state machine they can just rewrite it themselves and reuse the other state machines that they don't care about.
+- Make the session locking core cleanly separated from all the extra stuff. Decouple Developer Product stuff, and perhaps even remote changes and data version migration, from the core session locking system.
+- Rethink how the library treats save data - should it be owned by the usage code rather than the library? Need to support compression / serialization use cases.
+- Figure out how to deal with DataStore request limits.
 - Add some affordances for fields like `LockerState.InUse` so that different pieces of code may prevent the session from being released without knowing about each other. I guess I should just make it an array of values rather than a bool?
 - Find ways to make typechecking a little more convenient. It's pretty good right now, but there are still two big annoyances which I'd like to resolve:
   - Passing userdata into `LockerSpec` callbacks (e.g. you have a table associated with the `LockerState` that you want to access from within a callback). My current preference is to store userdata inside `LockerState`, but this means I need to fight with the typechecker.
   - Getting `LockerState.SaveData` casted into the actual SaveData type defined by the user with minimal friction (and accessing the save data in the first place might be annoyance for some people if they'd like to store it in more convenient place)
-- Figure out how to deal with DataStore request limits. Should there be some kind of API for saying whether a particular DataStore request is allowed to happen or not, so that game code can control DataStore budget usage?
-- Better error checking & messages so that the library has good human error UX
-- Data serialization/deserialization - users should be able to convert between their "live" data representation and their "stored" data representation before data is saved and after it is loaded. I guess the library shouldn't own the save data at all, it should just ask for the save data whenever it wants to save? How should product purchasing stuff and other internal usages of the save data table be handled though?
+- Some better error checking & messages so that the library has good human error UX
+
 
 ## Design
 
