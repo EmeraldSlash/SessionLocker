@@ -1,30 +1,14 @@
 --!strict
 
-local SessionLocker = require(game.ServerScriptService.SessionLocker)
 local ExampleMigrators = require(game.ServerScriptService.ExampleMigrators)
 local DataStoreService = require(game.ServerScriptService.DataStoreService)
+
+local SessionLocker = require(game.ReplicatedStorage.SessionLocker)
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local MarketplaceService = game:GetService("MarketplaceService")
 
-local IsStudio = RunService:IsStudio()
-local IsPrivateServer = game.PrivateServerId ~= ""
-
-local State = {
-	-- Only players that are still in the game will be present here. As soon as
-	-- they leave they will be removed.
-	PlayerState_ByPlayer = {} :: {[Player]: PlayerState};
-	
-	-- PlayerStates which are still being saved etc. will be present here even if
-	-- the original players have left the game.
-	PlayerState_ByUserId = {} :: {[number]: PlayerState};
-	
-	ServerClosing = false;
-	LastHeartbeatNow = os.clock();
-}
-
--- Session locker stuff
 type SaveData = SessionLocker.SaveData & {
 	ExampleMoney: number;
 	ExamplePlaytime: number;
@@ -67,9 +51,28 @@ type PlayerState = {
 }
 type PS_Replicated = {
 	ProductCreditDirty: boolean;
-	LoadStatus: number?;
+	LoadStatus: SessionLocker.LoadStatus?;
 	LoadMinimumServerVersion: number?;
 }
+
+local State = (function() return { -- Seal the table.
+
+	-- Only players that are still in the game will be present here. As soon as
+	-- they leave they will be removed.
+	PlayerState_ByPlayer = {} :: {[Player]: PlayerState};
+	
+	-- PlayerStates which are still being saved etc. will be present here even if
+	-- the original players have left the game.
+	PlayerState_ByUserId = {} :: {[number]: PlayerState};
+	
+	ServerClosing = false;
+	LastHeartbeatNow = os.clock();
+	
+	ProductPurchaser = SessionLocker.ProductPurchaserCreate();
+	
+	RemoteChangeSender = SessionLocker.RemoteChangeSenderCreate(LockerSpec);
+
+} end)()
 
 local function PlayerRemoving(Player)
 	local PS = State.PlayerState_ByPlayer[Player]
@@ -166,10 +169,12 @@ RunService.Heartbeat:Connect(function()
 	end
 	
 	for _, PS in State.PlayerState_ByUserId do
-		if SessionLocker.UpdateEverything(PS.SessionLockerState, HeartbeatNow) then
+		if PS.SessionLockerState:SessionUpdate(HeartbeatNow) then
 			State.PlayerState_ByUserId[PS.UserId] = nil
 		end
 	end
+	
+	State.ProductPurchaser:Update()
 	
 	debug.profileend() -- L_ServerHeartbeat
 end)
@@ -179,7 +184,11 @@ game:BindToClose(function()
 	for _, PlayerState in State.PlayerState_ByPlayer do
 		PlayerRemoving(PlayerState.Player)
 	end
-	while next(State.PlayerState_ByUserId) do
+	while
+		next(State.PlayerState_ByUserId) or
+		next(State.ProductPurchaser.PPPs_ByLS) or
+		State.RemoteChangeSender:IsSending()
+	do
 		task.wait()
 	end
 end)
@@ -192,7 +201,7 @@ local Shared = {
 }
 
 local ProductProcessFunctions: {[number]: SessionLocker.ProductProcessFunction} = {
-	[Shared.ProductId.ExampleProduct] = function(Op: number, LS: SessionLocker.LockerState)
+	[Shared.ProductId.ExampleProduct] = function(Op: SessionLocker.ProductOp, LS: SessionLocker.LockerState)
 		return true
 	end;
 }
@@ -218,7 +227,7 @@ MarketplaceService.ProcessReceipt = function(
 		end
 		if PS then
 			
-			if SessionLocker.LS_YieldUntilProductIsProcessedAndSaved(
+			if State.ProductPurchaser:YieldUntilProductIsProcessedAndSaved(
 					PS.SessionLockerState, PF, ReceiptInfo)
 			then
 				Result = Enum.ProductPurchaseDecision.Granted
@@ -229,31 +238,38 @@ MarketplaceService.ProcessReceipt = function(
 	return Result
 end
 
-local function AttemptUseProductCredit(PS: PlayerState, ProductId: number, Count: number): boolean
+local function AttemptUseProductCredit(
+	PS: PlayerState,
+	ProductId: number,
+	Count: number
+): boolean
 	local UsedCredit = false
 	if PS.InfiniteProductCredit then
 		UsedCredit = true
 	else
-		UsedCredit = SessionLocker.LS_ProductCreditUse(
-			PS.SessionLockerState, ProductId, Count)
+		UsedCredit = PS.SessionLockerState:ProductCreditUse(ProductId, Count)
 	end
 	return UsedCredit
 end
 
-local function RequestProductPurchase(Player: Player, ProductId: number)
-	local PS = State.PlayerState_ByPlayer[Player]
+local RequestProductPurchase = Instance.new("RemoteEvent")
+RequestProductPurchase.Parent = game.ReplicatedStorage
+RequestProductPurchase.OnServerEvent:Connect(function(
+	Player: Player, ProductId: number
+)
+	local PS: PlayerState = State.PlayerState_ByPlayer[Player]
 	local ProcessFunction = ProductProcessFunctions[ProductId]
 	if PS then
 		local LS = PS.SessionLockerState
-		if LS.LoadStatus == SessionLocker.LoadStatus.loaded and
+		if LS.LoadStatus == "loaded" and
 			ProcessFunction and
-			ProcessFunction(SessionLocker.ProductOp.validate, LS, ProductId)
+			ProcessFunction("validate", LS, ProductId)
 		then
 			if AttemptUseProductCredit(PS, ProductId, 1) then
-				ProcessFunction(SessionLocker.ProductOp.apply, LS, ProductId)
+				ProcessFunction("apply", LS, ProductId)
 			else
 				MarketplaceService:PromptProductPurchase(Player, ProductId)
 			end
 		end
 	end
-end
+end)

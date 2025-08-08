@@ -2,7 +2,7 @@
 
 local Module = {}
 
-local SessionLocker = require(game.ServerScriptService.SessionLocker)
+local SessionLocker = require(game.ReplicatedStorage.SessionLocker)
 
 local Migrators = {} :: {[number]: SessionLocker.SaveDataMigrator}
 Module.Migrators = Migrators

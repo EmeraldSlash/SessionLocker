@@ -2,10 +2,10 @@
 
 local DataStoreService = require(game.ServerScriptService.DataStoreService)
 
+local SessionLocker = require(game.ReplicatedStorage.SessionLocker)
+
 local Players = game:GetService("Players")
 local DataStore = DataStoreService:GetDataStore("Frogs")
-
-local SessionLocker = require(script.Parent.SessionLocker)
 
 local SaveDataVersion = 2
 local SaveDataVersionPatch
@@ -68,17 +68,21 @@ local function PlayerAdded(Player)
 		print(("Session loaded with gold %d"):format(SD.Gold))
 		
 		print("Beginning gold change & save process..")
+		local DidSave = false
 		
-		local DidSave = Profile:RepeatUntilChangesSavedAsync(function()
-			print("Starting the next change attempt")
+		while Profile.IsActive do
 			
+			print("Starting the next change attempt")
 			SD.Gold += 10
 			
 			print(("Forcing a save of gold %d"):format(SD.Gold))
 			Profile:MarkForceSave()
-			
-			return false
-		end)
+
+			DidSave = Profile:YieldUntilChangesSaved()
+			if DidSave then
+				break
+			end
+		end
 		
 		if DidSave then
 			print("Gold saved, ending session")
