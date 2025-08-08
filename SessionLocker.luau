@@ -1302,6 +1302,10 @@ local function SessionReset(LS: LockerState, LifecycleReason: LifecycleReason)
 	end
 	--]]
 	
+	if LS.LockerSpec.Lifecycle then
+		LS.LockerSpec.Lifecycle(LS, "replaced", LifecycleReason)
+	end
+	
 	-- Trigger all SavedConnections.
 	do
 		local Clone = table.clone(LS.SavedConnections)
@@ -1310,10 +1314,6 @@ local function SessionReset(LS: LockerState, LifecycleReason: LifecycleReason)
 			local SC = Clone[Index]
 			Module.SC_Trigger(SC, false)
 		end
-	end
-	
-	if LS.LockerSpec.Lifecycle then
-		LS.LockerSpec.Lifecycle(LS, "replaced", LifecycleReason)
 	end
 	
 	if Changed and
@@ -2286,6 +2286,10 @@ function Module.LS_SessionUpdate(LS: LockerState, HeartbeatNow: number): boolean
 			ShouldRemove = true
 			LS.IsRemoved = true
 			
+			if LS.LockerSpec.Lifecycle then
+				LS.LockerSpec.Lifecycle(LS, "destroyed", "none")
+			end
+			
 			-- Trigger all SavedConnections.
 			do
 				local Clone = table.clone(LS.SavedConnections)
@@ -3141,6 +3145,71 @@ local function EasyHeartbeat()
 	debug.profileend()
 end
 
+local function EasyLifecycle(LS, Status: LifecycleStatus, Reason: LifecycleReason)
+	local ELS: EasyLockerState = LS :: any
+	if ELS.EPs then
+		for _, EP in ELS.EPs do
+			
+			if Status == "replaced" then
+				
+				if Reason == "r_loaded" then
+					EP.IsLoaded = true
+					EP.Loaded:Fire()
+					
+					for _, Thread in EP.LoadYieldThreads do
+						task.defer(Thread)
+					end
+					table.clear(EP.LoadYieldThreads)
+					
+				else
+					EP.IsLoaded = false
+					if Reason == "r_lost" then
+						EP.Lost:Fire()
+					elseif Reason == "r_released" then
+						EP.Released:Fire()
+					end
+					
+					EP.Reset:Fire(Reason)
+				end
+				
+				EP.Replaced:Fire(Reason)
+				
+				for _, Group in EP.SaveYieldThreads do
+					task.defer(Group.Thread)
+				end
+				table.clear(EP.SaveYieldThreads)
+				
+			elseif Status == "saved" then
+				EP.Saved:Fire(Reason)
+			
+				for Index = #EP.SaveYieldThreads, 1, -1 do
+					local Group = EP.SaveYieldThreads[Index]
+					if Group.ChangeId <= LS.ChangeId_Saved then
+						task.defer(Group.Thread, LS.ChangeId_Saved)
+						table.remove(EP.SaveYieldThreads, Index)
+					end
+				end
+				
+			elseif Status == "destroyed" then
+				EP.Destroyed:Fire(Reason)
+			end
+			
+			EP.Lifecycle:Fire(Status, Reason)
+		end
+	end
+end
+local function EasyProductCreditChanged(LS, SD, ProductId, ChangeAmount, UserData)
+	local ELS: EasyLockerState = LS :: any
+	if ELS.EPs then
+		for _, EP in ELS.EPs do
+			EP.ProductCreditChanged:Fire(
+				ProductId,
+				ChangeAmount,
+				UserData)
+		end
+	end
+end
+
 function Module.EasyStoreCreate(
 	
 	DataStore: DataStore,
@@ -3210,74 +3279,10 @@ function Module.EasyStoreCreate(
 				return SaveData
 			end;
 			
-			Lifecycle = function(LS, Status: LifecycleStatus, Reason: LifecycleReason)
-				local ELS: EasyLockerState = LS :: any
-				if ELS.EPs then
-					for _, EP in ELS.EPs do
-						
-						if Status == "replaced" then
-							
-							if Reason == "r_loaded" then
-								EP.Loaded:Fire()
-								
-								for _, Thread in EP.LoadYieldThreads do
-									task.defer(Thread)
-								end
-								table.clear(EP.LoadYieldThreads)
-								
-							else
-								if Reason == "r_lost" then
-									EP.Lost:Fire()
-								elseif Reason == "r_released" then
-									EP.Released:Fire()
-								end
-								
-								EP.Reset:Fire(Reason)
-							end
-							
-							EP.Replaced:Fire(Reason)
-							
-							for _, Group in EP.SaveYieldThreads do
-								task.defer(Group.Thread)
-							end
-							table.clear(EP.SaveYieldThreads)
-							
-						elseif Status == "saved" then
-							EP.Saved:Fire(Reason)
-						
-							for Index = #EP.SaveYieldThreads, 1, -1 do
-								local Group = EP.SaveYieldThreads[Index]
-								if Group.ChangeId <= LS.ChangeId_Saved then
-									task.defer(Group.Thread, LS.ChangeId_Saved)
-									table.remove(EP.SaveYieldThreads, Index)
-								end
-							end
-							
-						elseif Status == "destroyed" then
-							EP.Destroyed:Fire(Reason)
-							
-						end
-						
-						EP.Lifecycle:Fire(Status, Reason)
-					end
-				end
-			end;
-			
+			Lifecycle = EasyLifecycle;
+			ProductCreditChanged = EasyProductCreditChanged;
 			ReportDataStoreError = Module.Default_LockerSpec_ReportDataStoreError;
-			
 			ProcessRemoteChange = ProcessRemoteChange;
-			
-			ProductCreditChanged = function(LS, SD, ProductId, ChangeAmount, UserData)
-				local ELS: EasyLockerState = LS :: any
-				if ELS.EPs then
-					for _, EP in ELS.EPs do
-						EP.ProductCreditChanged:Fire(
-							ProductId,
-							ChangeAmount,
-							UserData)
-					end
-				end
-			end;
 		}
 		
 		local RCS = Module.RemoteChangeSenderCreate(LSpec, true)
@@ -3413,13 +3418,15 @@ local function EP_Init(EP: EasyProfile)
 	EP.LoadYieldThreads = {}
 	EP.SaveYieldThreads = {}
 	
-	EP.Lifecycle = Module.SignalCreate()
-	EP.Loaded = Module.SignalCreate()
-	EP.Lost = Module.SignalCreate()
-	EP.Reset = Module.SignalCreate()
-	EP.Replaced = Module.SignalCreate()
-	EP.Saved = Module.SignalCreate()
 	EP.ProductCreditChanged = Module.SignalCreate()
+	EP.Lifecycle = Module.SignalCreate()
+	EP.Destroyed = Module.SignalCreate()
+	EP.Saved = Module.SignalCreate()
+	EP.Replaced = Module.SignalCreate()
+	EP.Loaded = Module.SignalCreate()
+	EP.Reset = Module.SignalCreate()
+	EP.Released = Module.SignalCreate()
+	EP.Lost = Module.SignalCreate()
 	
 	EP.GetSaveData = Module.EP_GetSaveData
 	EP.YieldUntilLoaded = Module.EP_YieldUntilLoaded
@@ -3569,6 +3576,9 @@ function Module.EP_EndSession(EP: EasyProfile)
 		if not ELS.EPs[1] then
 			Module.LS_MarkShouldRelease(ELS)
 		end
+		
+		local Reason: LifecycleReason = "none"
+		EP.Destroyed:Fire(Reason)
 		
 		for _, Thread in EP.LoadYieldThreads do
 			task.defer(Thread)
