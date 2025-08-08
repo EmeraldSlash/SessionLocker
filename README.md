@@ -19,7 +19,6 @@ Future plans:
 - Make the session locking core cleanly separated from all the extra stuff. Decouple Developer Product stuff, and perhaps even remote changes and data version migration, from the core session locking system.
 - Rethink how the library treats save data - should it be owned by the usage code rather than the library? Need to support compression / serialization use cases.
 - Figure out how to deal with DataStore request limits.
-- Add some affordances for fields like `LockerState.InUse` so that different pieces of code may prevent the session from being released without knowing about each other. I guess I should just make it an array of values rather than a bool?
 - Find ways to make typechecking a little more convenient. It's pretty good right now, but there are still two big annoyances which I'd like to resolve:
   - Passing userdata into `LockerSpec` callbacks (e.g. you have a table associated with the `LockerState` that you want to access from within a callback). My current preference is to store userdata inside `LockerState`, but this means I need to fight with the typechecker.
   - Getting `LockerState.SaveData` casted into the actual SaveData type defined by the user with minimal friction (and accessing the save data in the first place might be annoyance for some people if they'd like to store it in more convenient place)
@@ -39,8 +38,8 @@ There are some common limitations in Roblox DataStore libraries that I am trying
 - The library should be thought of as a backend that is relatively neutral about architectural details.
 - The use of singletons or globals is avoided so that all inputs can be configured by usage code.
 - All code execution can be controlled by the usage code (except for isolated operations without side effects). But the library can still have _optional_ convenience APIs which execute code on their own, if the user doesn't care.
-- Complicated pipelines are explicitly implemented as state machines so that they can be easily comprehended by humans and turned into isolated reusable units of code. At the moment the library's state machines are reevaluated every frame, which is fine at the moment: there are no performance problems. If necessary the state machines can be reevaluated less frequently in the future, but I haven't added this capability yet. Blocking Roblox API calls are isolated so that they can behave as nice pure functions with no annoying code execution side effects.
-  - This explicit state machine design is a reaction to the common programming style in Roblox that makes heavy use of fibers ("coroutines" / "threads") and derived constructs (like promises). That programming style complicates code execution and makes it hard to guarantee robustness, especially when there are many different sources of input into the implicit state machine. In the case of DataStore state machines, they have inputs coming from game code modifying save data or requesting data to be saved, players joining and leaving the game, the success or failure of various DataStore operations (also related to DataStore request limits), and the steady, unstoppable advancement of time.
+- Complicated pipelines are explicitly implemented as state machines so that they can be easily comprehended by humans and turned into isolated reusable units of code. At the moment the library's state machines are reevaluated every frame, which is fine at the moment. If necessary the state machines can be reevaluated less frequently in the future, but I haven't added this capability yet. Blocking Roblox API calls are isolated so that they can behave as nice pure functions with no annoying code execution side effects.
+  - This explicit state machine design is a reaction to the common programming style in Roblox that makes heavy use of fibers ("coroutines" / "threads") and derived constructs (like promises). That programming style complicates code execution and makes it hard to guarantee robustness, especially when there are many different sources of input into the implicit state machine. In the case of DataStore state machines, they have inputs coming from game code modifying save data or requesting data to be saved, players joining and leaving the game, the success or failure of various DataStore operations (also related to DataStore request limits), and time.
 
 ## Usage Examples
 
@@ -58,12 +57,12 @@ if Profile:YieldUntilLoaded() then
 	SaveData.Gold += 10
 	Profile:MarkShouldSave()
 
-	while true do
+	while Profile.IsActive do
 		SaveData.Diamonds += 1
 		Profile:MarkForceSave()
 
-		local ChangeStatus = Profile:YieldUntilChangesSaved()
-		if ChangeStatus ~= "replaced" then
+		local DidSave = Profile:YieldUntilChangesSaved()
+		if DidSave then
 			break
 		end
 	end
