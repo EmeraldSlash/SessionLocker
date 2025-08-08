@@ -1,7 +1,7 @@
 --!strict
 
 local SessionLocker = require(game.ServerScriptService.SessionLocker)
-local SaveDataMigrators = require(game.ServerScriptService.SaveDataMigrators)
+local ExampleMigrators = require(game.ServerScriptService.ExampleMigrators)
 local DataStoreService = require(game.ServerScriptService.DataStoreService)
 
 local Players = game:GetService("Players")
@@ -32,8 +32,8 @@ type SaveData = SessionLocker.SaveData & {
 local LockerSpec: SessionLocker.LockerSpec = {
 	DataStore = DataStoreService:GetDataStore("SaveData");
 	SaveDataVersion = 1;
-	SaveDataMigrators = SaveDataMigrators.Migrators;
-	SaveDataPatchers = SaveDataMigrators.Patchers;
+	SaveDataMigrators = ExampleMigrators.Migrators;
+	SaveDataPatchers = ExampleMigrators.Patchers;
 	SaveDataCreator = function(): SaveData
 		return {
 			Version = 1;
@@ -77,7 +77,7 @@ local function PlayerRemoving(Player)
 		State.PlayerState_ByPlayer[Player] = nil
 		assert(PS.Player == Player)
 		
-		SessionLocker.MarkShouldRelease(PS.SessionLockerState)
+		PS.SessionLockerState:MarkShouldRelease()
 		PS.HasLeft = true
 	end
 end
@@ -115,7 +115,7 @@ local function PlayerAdded(Player)
 	PS.Player = Player
 	PS.HasLeft = false
 	PS.ClientReady = false
-	SessionLocker.MarkShouldAcquire(PS.SessionLockerState)
+	PS.SessionLockerState:MarkShouldAcquire()
 	
 	PS.Replicated = {
 		ProductCreditDirty = true;
@@ -218,7 +218,7 @@ MarketplaceService.ProcessReceipt = function(
 		end
 		if PS then
 			
-			if SessionLocker.YieldUntilProductIsProcessedAndSaved(
+			if SessionLocker.LS_YieldUntilProductIsProcessedAndSaved(
 					PS.SessionLockerState, PF, ReceiptInfo)
 			then
 				Result = Enum.ProductPurchaseDecision.Granted
@@ -234,7 +234,7 @@ local function AttemptUseProductCredit(PS: PlayerState, ProductId: number, Count
 	if PS.InfiniteProductCredit then
 		UsedCredit = true
 	else
-		UsedCredit = SessionLocker.ProductCreditUse(
+		UsedCredit = SessionLocker.LS_ProductCreditUse(
 			PS.SessionLockerState, ProductId, Count)
 	end
 	return UsedCredit
@@ -247,10 +247,10 @@ local function RequestProductPurchase(Player: Player, ProductId: number)
 		local LS = PS.SessionLockerState
 		if LS.LoadStatus == SessionLocker.LoadStatus.loaded and
 			ProcessFunction and
-			ProcessFunction(SessionLocker.ProductProcessOp.validate, LS, ProductId)
+			ProcessFunction(SessionLocker.ProductOp.validate, LS, ProductId)
 		then
 			if AttemptUseProductCredit(PS, ProductId, 1) then
-				ProcessFunction(SessionLocker.ProductProcessOp.apply, LS, ProductId)
+				ProcessFunction(SessionLocker.ProductOp.apply, LS, ProductId)
 			else
 				MarketplaceService:PromptProductPurchase(Player, ProductId)
 			end

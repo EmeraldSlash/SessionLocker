@@ -1,10 +1,14 @@
 --!strict
 
+local DataStoreService = require(game.ServerScriptService.DataStoreService)
+
 local Players = game:GetService("Players")
-local DataStore = game:GetService("DataStoreService"):GetDataStore("Frogs")
+local DataStore = DataStoreService:GetDataStore("Frogs")
 
 local SessionLocker = require(script.Parent.SessionLocker)
 
+local SaveDataVersion = 2
+local SaveDataVersionPatch
 type MySaveData = {
 	Gold: number;
 	Diamonds: number;
@@ -18,15 +22,17 @@ end
 
 local Migrators, Patchers
 do
-	local Builder = SessionLocker.MB_Create()
+	local Builder = SessionLocker.MigratorBuilderCreate()
 	
-	-- Added the Diamonds field in version 2!
-	Builder:AddMigrator(1, function(SaveData)
+	local V2_Patch = 1
+	Builder:AddMigratorFrom(1, function(SaveData)
+		
+		-- In save data version 2 we added the Diamonds field!
 		SaveData.Diamonds = 0
-		return 1
+		
+		return V2_Patch
 	end)
-	
-	Builder:AddPatcher(2, function(SaveData, Patch)
+	Builder:AddPatcherFor(2, function(SaveData, Patch)
 		
 		-- In the first version of the migrator we gave people 1000 diamonds on 
 		-- accident. Somebody pushed the testing code to prod.. Let's revert that 
@@ -35,14 +41,18 @@ do
 			SaveData.Diamonds = math.max(SaveData.Diamonds-1000, 0)
 		end
 		
-		return 1
+		return V2_Patch
 	end)
+	
+	Builder:CheckVersion(SaveDataVersion)
+	SaveDataVersionPatch = V2_Patch
 	
 	Migrators, Patchers = Builder:Build()
 end
 
 local Store = SessionLocker.EasyStoreCreate(
-	DataStore, CreateMySaveData, 2, 1, Migrators, Patchers)
+	DataStore, CreateMySaveData,
+	SaveDataVersion, SaveDataVersionPatch, Migrators, Patchers)
 local Profile_ByPlayer = {}
 
 local function PlayerAdded(Player)
@@ -50,22 +60,32 @@ local function PlayerAdded(Player)
 	Profile_ByPlayer[Player] = Profile
 	print("Started session")
 	
-	if not Profile:YieldUntilLoadedOrEnded() then
+	if not Profile:YieldUntilLoaded() then
 		warn("Failed to load session")
 		
 	else
 		local SD: MySaveData = Profile:GetSaveData() :: any
 		print(("Session loaded with gold %d"):format(SD.Gold))
 		
-		SD.Gold += 10
+		print("Beginning gold change & save process..")
 		
-		print(("Forcing a save of gold %d"):format(SD.Gold))
-		local ChangeId = Profile:ForceSave()
+		local DidSave = Profile:RepeatUntilChangesSavedAsync(function()
+			print("Starting the next change attempt")
+			
+			SD.Gold += 10
+			
+			print(("Forcing a save of gold %d"):format(SD.Gold))
+			Profile:MarkForceSave()
+			
+			return false
+		end)
 		
-		print("Waiting until save is complete..")
-		Profile:YieldUntilSavedOrEnded(ChangeId)
+		if DidSave then
+			print("Gold saved, ending session")
+		else
+			print("Gold failed to save, ending session")
+		end
 		
-		print("Gold saved, ending session")
 		Profile:EndSession()
 		Profile_ByPlayer[Player] = nil
 	end
