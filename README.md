@@ -49,8 +49,10 @@ Using the easy API:
 local Store = SessionLocker.EasyStoreCreate(DataStore, function()
 	return {Gold = 0; Diamonds = 0;}
 end)
+
 local Profile = Store:StartSession(tostring(UserId))
 if Profile:YieldUntilLoaded() then
+
 	local SaveData = Profile:GetSaveData()
 
 	SaveData.Gold += 10
