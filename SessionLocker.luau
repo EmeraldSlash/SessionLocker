@@ -3145,56 +3145,70 @@ local function EasyHeartbeat()
 	debug.profileend()
 end
 
+local function EasyLifecycleSingle(EP: EasyProfile, Status: LifecycleStatus, Reason: LifecycleReason)
+	local LS = EP.ELS
+	
+	if Status == "replaced" then
+				
+		if Reason == "r_loaded" then
+			EP.IsLoaded = true
+			EP.Loaded:Fire()
+			
+			for _, Thread in EP.LoadYieldThreads do
+				task.defer(Thread)
+			end
+			table.clear(EP.LoadYieldThreads)
+			
+		else
+			EP.IsLoaded = false
+			if Reason == "r_lost" then
+				EP.Lost:Fire()
+			elseif Reason == "r_released" then
+				EP.Released:Fire()
+			end
+			
+			EP.Reset:Fire(Reason)
+		end
+		
+		EP.Replaced:Fire(Reason)
+		
+		for _, Group in EP.SaveYieldThreads do
+			task.defer(Group.Thread)
+		end
+		table.clear(EP.SaveYieldThreads)
+		
+	elseif Status == "saved" then
+		EP.Saved:Fire(Reason)
+	
+		for Index = #EP.SaveYieldThreads, 1, -1 do
+			local Group = EP.SaveYieldThreads[Index]
+			if Group.ChangeId <= LS.ChangeId_Saved then
+				task.defer(Group.Thread, LS.ChangeId_Saved)
+				table.remove(EP.SaveYieldThreads, Index)
+			end
+		end
+		
+	elseif Status == "destroyed" then
+		EP.Destroyed:Fire(Reason)
+		
+		for _, Thread in EP.LoadYieldThreads do
+			task.defer(Thread)
+		end
+		table.clear(EP.LoadYieldThreads)
+		
+		for _, Group in EP.SaveYieldThreads do
+			task.defer(Group.Thread)
+		end
+		table.clear(EP.SaveYieldThreads)
+	end
+	
+	EP.Lifecycle:Fire(Status, Reason)
+end
 local function EasyLifecycle(LS, Status: LifecycleStatus, Reason: LifecycleReason)
 	local ELS: EasyLockerState = LS :: any
 	if ELS.EPs then
 		for _, EP in ELS.EPs do
-			
-			if Status == "replaced" then
-				
-				if Reason == "r_loaded" then
-					EP.IsLoaded = true
-					EP.Loaded:Fire()
-					
-					for _, Thread in EP.LoadYieldThreads do
-						task.defer(Thread)
-					end
-					table.clear(EP.LoadYieldThreads)
-					
-				else
-					EP.IsLoaded = false
-					if Reason == "r_lost" then
-						EP.Lost:Fire()
-					elseif Reason == "r_released" then
-						EP.Released:Fire()
-					end
-					
-					EP.Reset:Fire(Reason)
-				end
-				
-				EP.Replaced:Fire(Reason)
-				
-				for _, Group in EP.SaveYieldThreads do
-					task.defer(Group.Thread)
-				end
-				table.clear(EP.SaveYieldThreads)
-				
-			elseif Status == "saved" then
-				EP.Saved:Fire(Reason)
-			
-				for Index = #EP.SaveYieldThreads, 1, -1 do
-					local Group = EP.SaveYieldThreads[Index]
-					if Group.ChangeId <= LS.ChangeId_Saved then
-						task.defer(Group.Thread, LS.ChangeId_Saved)
-						table.remove(EP.SaveYieldThreads, Index)
-					end
-				end
-				
-			elseif Status == "destroyed" then
-				EP.Destroyed:Fire(Reason)
-			end
-			
-			EP.Lifecycle:Fire(Status, Reason)
+			EasyLifecycleSingle(EP, Status, Reason)
 		end
 	end
 end
@@ -3566,7 +3580,6 @@ end
 function Module.EP_EndSession(EP: EasyProfile)
 	if EP.IsActive then
 		EP.IsActive = false
-		EP.IsLoaded = false
 		
 		local ELS = EP.ELS
 		local Index = table.find(ELS.EPs, EP)
@@ -3577,17 +3590,10 @@ function Module.EP_EndSession(EP: EasyProfile)
 			Module.LS_MarkShouldRelease(ELS)
 		end
 		
-		local Reason: LifecycleReason = "none"
-		EP.Destroyed:Fire(Reason)
-		
-		for _, Thread in EP.LoadYieldThreads do
-			task.defer(Thread)
+		if EP.IsLoaded then
+			EasyLifecycleSingle(EP, "replaced", "r_released")
 		end
-		table.clear(EP.LoadYieldThreads)
-		for _, Group in EP.SaveYieldThreads do
-			task.defer(Group.Thread)
-		end
-		table.clear(EP.SaveYieldThreads)
+		EasyLifecycleSingle(EP, "destroyed", "none")
 	end
 end
 
