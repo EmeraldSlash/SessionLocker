@@ -23,6 +23,7 @@ Future plans:
   - Passing userdata into `LockerSpec` callbacks (e.g. you have a table associated with the `LockerState` that you want to access from within a callback). My current preference is to store userdata inside `LockerState`, but this means I need to fight with the typechecker.
   - Getting `LockerState.SaveData` casted into the actual SaveData type defined by the user with minimal friction (and accessing the save data in the first place might be annoyance for some people if they'd like to store it in more convenient place)
 - Some better error checking & messages so that the library has good human error UX
+- Improve the library structure so it's a bit easier to understand. It's kinda dumb to have separate "full" and "easy" APIs - can they just be merged?
 
 
 ## Design
