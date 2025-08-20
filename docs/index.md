@@ -1,14 +1,10 @@
 ---
-layout: page
 title: "SessionLocker"
-permalink: /home
 ---
 
---
--- // API Summary
---
--------------------------------------------------------------------------------
--- EASY API
+# API summary
+
+## EASY API
 --
 -- .EasyStoreCreate(DataStore, CreateSaveDataFunction): EasyStore
 --
