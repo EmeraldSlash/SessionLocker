@@ -1,13 +1,16 @@
 ---
-title: "Welcome!"
+title: "SessionLocker"
 ---
 
+# Navigation
 * Table of Contents
 {:toc}
 
-# API summary
+# Easy API
 
-## EASY API
+- Create an EasyStore
+- Begin a session by creating an EasyProfile using `EasyStore:StartSession()`
+- End the EasyProfile's session whenever you want by calling `EasyProfile:EndSession()`
 
 ```luau
 .EasyStoreCreate(DataStore, CreateSaveDataFunction): EasyStore
@@ -51,22 +54,16 @@ EasyProfile:YieldUntilProductIsProcessedAndSaved(
 	LockerState, ProcessFunction, ReceiptInfo): (WasSaved: boolean)
 ```
 
-## HELPERS
+# Full API
 
-```luau
-.QueryConfig(Override, Default): Config
+- Create a LockerSpec
+- Using the `LockerSpec`, create a LockerState and call `LockerState:MarkShouldAcquire()` to begin a new session
+- End the `LockerState`'s session whenever you want by calling `LockerState:MarkShouldRelease()`
+- On `RunService.Heartbeat`, update all `LockerStates`, deleting/forgetting a `LockerState` when its update function returns true
+- In `game:BindToClose()`, wait for all `LockerStates` to be deleted/forgotten.
+- Create a `ProductPurchaser` for a particular `LockerState` to use when processing product purchases in `MarketplaceService.ProcessReceipt`, and call its `Update` function on Heartbeat.
 
-.TableDeepCopy(Table): Table
-.TableRestoreBackup(Table, Backup)
-
-.LogErrorVariations(Identifier, ErrorMessage)
-.LogPrefixCreate(): string
-
-type RequestErrorKind
-.GetRequestErrorKind(PcallMessage): RequestErrorKind
-```
-
-## LOCKER SPEC
+## LockerSpec
 Configuration table needed by LockerStates & RemoteChangeSenders.
 
 ```luau
@@ -77,9 +74,8 @@ type SaveDataMigrator
 type SaveDataPatcher
 ```
 
-### Global default callbacks & configs
-These may also be defined in LockerSpecs, and the ones in LockerSpecs will
-override these global ones.
+Global default callbacks & configs may also be defined in LockerSpecs, and the ones in LockerSpecs will
+override the global ones which are listed here:
 
 ```
 .Default_LockerSpec_ReportDataStoreError()
@@ -93,7 +89,7 @@ override these global ones.
 .Default_PurchaseHistoryLimit
 ```
 
-## LOCKER STATE
+## LockerState
 Active session locking & save data state associated with a UserId.
 
 ```luau
@@ -127,7 +123,7 @@ SavedConnection:Trigger(WasSaved)
 SavedConnection:Destroy()/Disconnect()
 ```
 
-## PRODUCT PURCHASER
+## ProductPurchaser
 Robust developer product handling on LockerStates.
 
 ```luau
@@ -146,7 +142,25 @@ ProductPurchaser:Update()
 ProductPurchaser:Destroy()
 ```
 
-## REMOTE CHANGE SENDER
+# Helper API
+- Create a `RemoteChangeSender` to send remote changes to DataStore keys corresponding to a particular `LockerSpec`
+- Create a `MigratorBuilder` to create migrators and patches that will be used when creating a `LockerSpec` or `EasyStore`
+
+## General Helpers
+```luau
+.QueryConfig(Override, Default): Config
+
+.TableDeepCopy(Table): Table
+.TableRestoreBackup(Table, Backup)
+
+.LogErrorVariations(Identifier, ErrorMessage)
+.LogPrefixCreate(): string
+
+type RequestErrorKind
+.GetRequestErrorKind(PcallMessage): RequestErrorKind
+```
+
+## RemoteChangeSender
 Sending remote changes to data store keys that the server has not acquired a
 session for.
 
@@ -162,7 +176,7 @@ RemoteChangeSender:Send(DataStoreKey, RemoteChanges)
 type SD_RemoteChange_Base -- (used when creating remote changes)
 ```
 
-## MIGRATOR BUILDER
+## MigratorBuilder
 
 ```
 .MigratorBuilderCreate(): MigratorBuilder
