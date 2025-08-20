@@ -43,9 +43,9 @@ EasyProfile:ProductCreditUse(ProductId, Amount): (DidUse: boolean)
 
 (wrappers of ProductPurchaser methods)
 EasyProfile:CallWhenProductIsProcessedAndSaved(
-		LockerState, ProcessFunction, ReceiptInfo, Callback)
+	LockerState, ProcessFunction, ReceiptInfo, Callback)
 EasyProfile:YieldUntilProductIsProcessedAndSaved(
-		LockerState, ProcessFunction, ReceiptInfo): (WasSaved: boolean)
+	LockerState, ProcessFunction, ReceiptInfo): (WasSaved: boolean)
 ```
 
 ## HELPERS
@@ -69,15 +69,16 @@ Configuration table needed by LockerStates & RemoteChangeSenders.
 ```luau
 type LockerSpec 
 
-type SaveData (extend from this when creating your own save data type)
+type SaveData -- (extend from this when creating your own save data type)
 type SaveDataMigrator
 type SaveDataPatcher
--
-Global default callbacks & configs:
+```
 
-(These may also be defined in LockerSpecs, and the ones in LockerSpecs will
-override these global ones.)
+### Global default callbacks & configs
+These may also be defined in LockerSpecs, and the ones in LockerSpecs will
+override these global ones.
 
+```
 .Default_LockerSpec_ReportDataStoreError()
 .Default_RemoteChangeSender_ReportDataStoreError()
 
@@ -115,7 +116,7 @@ LockerState:ProductCreditUse(ProductId, Amount): (DidUse: boolean)
 LockerState:YieldUntilChangesSaved(): (WasSaved: boolean)
 LockerState:WhenChangesSaved(Callback): SavedConnection
 
-type SavedConnection (used to detect when save data gets saved or reset)
+type SavedConnection -- (used to detect when save data gets saved or reset)
 SavedConnection.Saved: boolean
 SavedConnection.Connected: boolean
 
@@ -155,7 +156,7 @@ RemoteChangeSender:Update()
 RemoteChangeSender:IsSending()
 RemoteChangeSender:Send(DataStoreKey, RemoteChanges)
 |
-type SD_RemoteChange_Base (used when creating remote changes)
+type SD_RemoteChange_Base -- (used when creating remote changes)
 ```
 
 ## MIGRATOR BUILDER
