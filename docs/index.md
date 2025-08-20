@@ -2,7 +2,6 @@
 title: "SessionLocker"
 ---
 
-# Navigation
 * Table of Contents
 {:toc}
 
