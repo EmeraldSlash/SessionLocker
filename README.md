@@ -18,12 +18,13 @@ The library intentionally does not provide (see the Design section below for dis
 Future plans:
 - Make the session locking core cleanly separated from all the extra stuff. Decouple Developer Product stuff, and perhaps even remote changes and data version migration, from the core session locking system.
 - Rethink how the library treats save data - should it be owned by the usage code rather than the library? Need to support compression / serialization use cases.
-- Figure out how to deal with DataStore request limits.
 - Find ways to make typechecking a little more convenient. It's pretty good right now, but there are still two big annoyances which I'd like to resolve:
   - Passing userdata into `LockerSpec` callbacks (e.g. you have a table associated with the `LockerState` that you want to access from within a callback). My current preference is to store userdata inside `LockerState`, but this means I need to fight with the typechecker.
   - Getting `LockerState.SaveData` casted into the actual SaveData type defined by the user with minimal friction (and accessing the save data in the first place might be annoyance for some people if they'd like to store it in more convenient place)
 - Some better error checking & messages so that the library has good human error UX
+- Figure out how to deal with DataStore request limits.
 - Improve the library structure so it's a bit easier to understand. It's kinda dumb to have separate "full" and "easy" APIs - can they just be merged?
+- Allow other servers to request to take a session lock from another server, or to forcibly take session lock if they really want.
 
 
 ## Design
