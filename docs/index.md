@@ -7,10 +7,11 @@ title: "SessionLocker"
 
 # Easy API
 
-- Create an EasyStore
-- Begin a session by creating an EasyProfile using `EasyStore:StartSession()`
-- End the EasyProfile's session whenever you want by calling `EasyProfile:EndSession()`
+- Create an `EasyStore`
+- Begin a session by creating an `EasyProfile` using `EasyStore:StartSession()`
+- End the `EasyProfile`'s session whenever you want by calling `EasyProfile:EndSession()`
 
+## EasyStore
 ```luau
 .EasyStoreCreate(DataStore, CreateSaveDataFunction): EasyStore
 
@@ -18,7 +19,10 @@ type EasyStore
 EasyStore:StartSession(DataStoreKey): EasyProfile
 EasyStore:StartSessionReusable(DataStoreKey): EasyProfile
 EasyStore:SendRemoteChanges(DataStoreKey, RemoteChanges)
+```
 
+## EasyProfile
+```
 type EasyProfile
 EasyProfile.IsActive: boolean
 EasyProfile.IsLoaded: boolean
@@ -55,8 +59,9 @@ EasyProfile:YieldUntilProductIsProcessedAndSaved(
 
 # Full API
 
-- Create a LockerSpec
-- Using the `LockerSpec`, create a LockerState and call `LockerState:MarkShouldAcquire()` to begin a new session
+- Create a `LockerSpec`
+- Create a `LockerState` from the `LockerSpec` using `.LockerCreate()`
+- Call `LockerState:MarkShouldAcquire()` to begin a new session
 - End the `LockerState`'s session whenever you want by calling `LockerState:MarkShouldRelease()`
 - On `RunService.Heartbeat`, update all `LockerStates`, deleting/forgetting a `LockerState` when its update function returns true
 - In `game:BindToClose()`, wait for all `LockerStates` to be deleted/forgotten.
