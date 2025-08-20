@@ -1,6 +1,9 @@
 ---
-title: "SessionLocker"
+title: "Welcome!"
 ---
+
+* Table of Contents
+{:toc}
 
 # API summary
 
@@ -63,7 +66,7 @@ type RequestErrorKind
 .GetRequestErrorKind(PcallMessage): RequestErrorKind
 ```
 
-## LOCKER SPEC:
+## LOCKER SPEC
 Configuration table needed by LockerStates & RemoteChangeSenders.
 
 ```luau
@@ -155,7 +158,7 @@ RemoteChangeSender:Destroy()
 RemoteChangeSender:Update()
 RemoteChangeSender:IsSending()
 RemoteChangeSender:Send(DataStoreKey, RemoteChanges)
-|
+
 type SD_RemoteChange_Base -- (used when creating remote changes)
 ```
 
