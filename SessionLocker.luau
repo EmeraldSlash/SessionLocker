@@ -6,7 +6,7 @@
 --
 -- Created by Rio Manson-Hay (@EmeraldSlash)
 --
--- Version: 5 (2025-08-08)
+-- Version: 6 (2025-10-22)
 --
 -- Change Log:
 --
@@ -15,23 +15,23 @@
 -- Version 2:
 --
 -- >> (See @DisableAPIs) After the SaveData table has been created for the first
--- time, it will never be replaced if DisableAPIs is enabled. Useful when 
--- usage code wants permanently customize save data for fake players or testing 
+-- time, it will never be replaced if DisableAPIs is enabled. Useful when
+-- usage code wants permanently customize save data for fake players or testing
 -- purposes or whatever.
 --
 -- Version 3:
 --
--- >> Added .LogErrorVariations() which can be used to log variations of an 
--- error message so that the error will be aggregated in the experience's Error 
+-- >> Added .LogErrorVariations() which can be used to log variations of an
+-- error message so that the error will be aggregated in the experience's Error
 -- Report and then more specific variations can be specifically searched for.
 --
--- >> Added .GsubFilter() which can be used to filter out specific information 
+-- >> Added .GsubFilter() which can be used to filter out specific information
 -- from logs, so that they get aggregated in the experience's Error Report.
 --
 -- >> Added .TableRestoreBackup() which can be used to restore a table to an older
 -- version of itself (that was previously deep copied using .TableDeepCopy).
 --
--- >> Added .QueryConfig() function for querying the value of a LockerSpec 
+-- >> Added .QueryConfig() function for querying the value of a LockerSpec
 -- config value in the same way that the module does it.
 --
 -- >> Added .GetRequestErrorKind() function and .RequestErrorKind enum, used
@@ -39,8 +39,8 @@
 --
 -- Version 4: (Breaking changes!)
 --
--- >> Reworked the easy API so that it works more like other session locking 
--- libraries, and so that it now supports session reuse and save data versions 
+-- >> Reworked the easy API so that it works more like other session locking
+-- libraries, and so that it now supports session reuse and save data versions
 -- and migration.
 --
 -- >> Added MigratorBuilder which makes the process of creating migrators and
@@ -49,39 +49,43 @@
 -- Version 5: (Breaking changes!)
 --
 -- >> Made method calls the preferred way of calling functions because they have
--- better UX. All methods are still available as normal functions as well, 
+-- better UX. All methods are still available as normal functions as well,
 -- prefixed by the acronym of the type name, for those who prefer that style.
 --
--- >> Added LockerState:WhenChangesSaved() and LockerState:YieldUntilSaved(), a 
--- proper robust API for tracking save data changes. Use of ChangeIds is no 
+-- >> Added LockerState:WhenChangesSaved() and LockerState:YieldUntilSaved(), a
+-- proper robust API for tracking save data changes. Use of ChangeIds is no
 -- longer recommended.
 --
--- >> Added LockerSpec.Lifecycle() callback, replacing other LockerSpec 
--- callbacks related to save data. This makes the API much simpler and better 
+-- >> Added LockerSpec.Lifecycle() callback, replacing other LockerSpec
+-- callbacks related to save data. This makes the API much simpler and better
 -- communicates how save data changes over time.
 --
 -- >> Changed LoadStatus and ProductOp (previously named ProductProcessOp) enums
--- to unions of string singletons instead of being numbers. 
+-- to unions of string singletons instead of being numbers.
 --
 -- >> Fixed bug where yielded product processing threads would never be resumed
 -- even when the LockerState is cleaned up.
 --
--- >> Added .RemoteChangeSenderCreate() and RemoteChangeSender type, and a 
+-- >> Added .RemoteChangeSenderCreate() and RemoteChangeSender type, and a
 -- LockerSpec.ProcessRemoteChange() callback. Remote Changes are now supported!
 --
--- >> Added .ProductPurchaseCreate() and ProductPurchaser to handle product 
--- processing in a way that is entirely separate from LockerStates. Product 
+-- >> Added .ProductPurchaseCreate() and ProductPurchaser to handle product
+-- processing in a way that is entirely separate from LockerStates. Product
 -- stuff is now entirely optional.
 --
 -- >> Improved the name of MigratorBuilder methods/functions.
 --
--- >> EasyStore and EasyProfiles can now do everything that 
+-- >> EasyStore and EasyProfiles can now do everything that
 --
 -- >> Lots of other small changes or renamed things.
+--
+-- Version 6:
+--
+-- >> Various improvements to comments.
 
 local Module = {}
 
--- NOTE: This module is safe to be required on both server & client. You can 
+-- NOTE: This module is safe to be required on both server & client. You can
 -- require it on the client to get access to LoadStatus, SaveData or other thing
 -- that you may want to replicate.
 
@@ -103,7 +107,7 @@ local Module = {}
 -- EasyProfile.IsLoaded: boolean
 -- |
 -- EasyProfile.ProductCreditChanged(ProductId, ChangeAmount): Signal
--- EasyProfile.Lifecycle(Status, Reason): Signal 
+-- EasyProfile.Lifecycle(Status, Reason): Signal
 -- |-	EasyProfile.Destroyed(Reason): Signal
 -- |-	EasyProfile.Saved(Reason): Signal
 -- |-	EasyProfile.Replaced(Reason): Signal
@@ -149,7 +153,7 @@ local Module = {}
 -- LOCKER SPEC:
 -- (configuration table needed by LockerStates & RemoteChangeSenders)
 --
--- type LockerSpec 
+-- type LockerSpec
 --
 -- type SaveData (extend from this when creating your own save data type)
 -- type SaveDataMigrator
@@ -208,7 +212,7 @@ local Module = {}
 -- (robust developer product handling on LockerStates)
 --
 -- .ProductPurchaserCreate(): ProductPurchaser
--- 
+--
 -- type ProductOp
 -- type ProductProcessFunction
 -- type ReceiptInfo
@@ -251,89 +255,92 @@ local Module = {}
 -- // Defining LockerSpec
 --
 
--- LockerSpec is the big structure you must pass in when wanting to start doing 
--- session locking for a particular UserId. It contains all the information 
--- needed by the module, as well as additional configurations. You can have as 
--- many LockerSpecs as you want, so you aren't locked in to using a single 
+-- LockerSpec is the big structure you must pass in when wanting to start doing
+-- session locking for a particular UserId. It contains all the information
+-- needed by the module, as well as additional configurations. You can have as
+-- many LockerSpecs as you want, so you aren't locked in to using a single
 -- DataStore or kind of data.
 
 export type LockerSpec = {
 	--
 	-- Required parameters
 	--
-	
+
 	DataStore: DataStore;
-	
-	-- SaveDataVersion must start at 1, and increment by 1 with every version 
+
+	-- SaveDataVersion must start at 1, and increment by 1 with every version
 	-- change, because it is used as an index into the SaveDataMigrators array.
 	--
-	-- This field will place a hard limit on whether a player's save data can be 
-	-- used or not. If a player joins a server with a version that the server 
-	-- doesn't know about then the player will be put into the safe mode where no 
-	-- data can be loaded or saved at all. (In this scenario the module stores and 
-	-- exposes what version was loaded, so that you can use that information to 
-	-- respond appropriately e.g. find new servers which are >= that version to 
+	-- This field will place a hard limit on whether a player's save data can be
+	-- used or not. If a player joins a server with a version that the server
+	-- doesn't know about then the player will be put into the safe mode where no
+	-- data can be loaded or saved at all. (In this scenario the module stores and
+	-- exposes what version was loaded, so that you can use that information to
+	-- respond appropriately e.g. find new servers which are >= that version to
 	-- teleport players to.)
 	SaveDataVersion: number;
-	
+
 	-- Migrators.
 	SaveDataMigrators: {[number]: SaveDataMigrator}; -- [FromVersion]: MigratorToNextVersion
 	SaveDataPatchers: {[number]: SaveDataPatcher}; -- [CurrentVersion]: PatcherCurrentVersion
-	
-	-- Creates new save data of the latest SaveDataVersion when needed. Must not 
+
+	-- Creates new save data of the latest SaveDataVersion when needed. Must not
 	-- yield, as it can be called from within UpdateAsync transform functions.
 	SaveDataCreator: (()->(SaveData));
-	
+
 	--
 	-- Optional functions
 	--
-	-- If an optional function is not provided, some functions have a default 
-	-- version Module.Default_* which you can have a look at. Also see 
+	-- If an optional function is not provided, some functions have a default
+	-- version Module.Default_* which you can have a look at. Also see
 	-- @CallbackCallingConvention and @CallbackTableMutation
-	
-	-- This function will be called whenever data is loaded, saved, or replaced. 
+
+	-- This function will be called whenever data is loaded, saved, or replaced.
 	-- It will also provide a reason for what happened, if applicable. See
-	-- @Lifecycle for more info.
+	-- @Lifecycle for more info. If you need to reliably track/update the save
+	-- data table, you should always use this instead of LoadStatusChanged.
 	Lifecycle: ((LS: LockerState, Status: LifecycleStatus, Reason: LifecycleReason)->())?;
-	
-	-- Use this to detect when the state of a session changes. Which is quite 
-	-- important for understanding how to interpret and interact with 
-	-- LockerState.SaveData, and so on.
+
+	-- Use this to detect when the state of a session changes. Tracking the
+	-- LoadStatus is different from tracking the lifecycle, in that this callback
+	-- is specifically for tracking the various ways in which the session may
+	-- fail to load or may be available / unavailable. (For example, data store
+	-- request errors, or corrupted data.)
 	LoadStatusChanged: ((LS: LockerState)->())?;
-	
-	-- If set, this function will be called when save data is loaded, and the 
-	-- default local "offline" copy of save data (SourceSD) is about to be 
+
+	-- If set, this function will be called when save data is loaded, and the
+	-- default local "offline" copy of save data (SourceSD) is about to be
 	-- replacted by the newly loaded save data (DestSD).
 	--
-	-- The function should merge applicable data from SourceSD into DestSD, 
+	-- The function should merge applicable data from SourceSD into DestSD,
 	-- mutating DestSD.
 	--
-	-- SourceSD is guaranteed to never have been saved before, it's completely 
-	-- fresh dummy data that the player was using before the real data loaded. 
+	-- SourceSD is guaranteed to never have been saved before, it's completely
+	-- fresh dummy data that the player was using before the real data loaded.
 	--
-	-- Note that only some values may be mergable: for example, if you track a 
-	-- player's playtime, you could do DestSD.TimePlayedSeconds += 
+	-- Note that only some values may be mergable: for example, if you track a
+	-- player's playtime, you could do DestSD.TimePlayedSeconds +=
 	-- SourceSD.TimePlayerSeconds, but if for some reason you give each save data
-	-- a unique GUID then it would not make sense to do DestSD.GUID = 
+	-- a unique GUID then it would not make sense to do DestSD.GUID =
 	-- SourceSD.GUID.
 	MergeOfflineSaveDataWithLoadedSaveData: ((
 		LS: LockerState,
 		SourceSD: any,
 		DestSD: any
 	)->())?;
-	
+
 	-- This function will be called to apply a RemoteChange to SaveData (mutating
-	-- SaveData). It should return true if the RemoteChange should be deleted 
+	-- SaveData). It should return true if the RemoteChange should be deleted
 	-- now (it was applied successfuly), or false if the RemoteChange needs to be
-	-- kept around (RemoteChange.K was an unknown value, or there was a 
+	-- kept around (RemoteChange.K was an unknown value, or there was a
 	-- temporary error in applying the change). This code should be extremely
 	-- conservative and safe so that it doesn't throw errors.
 	ProcessRemoteChange: ((
 		SD: any,
 		RemoteChange: any
 	)->(boolean))?;
-	
-	-- This function will be used to report common boring errors that are 
+
+	-- This function will be used to report common boring errors that are
 	-- specifically related to backend or network communication failures, and are
 	-- generally not relevant for our own code.
 	--
@@ -350,7 +357,7 @@ export type LockerSpec = {
 		OperationName: string,
 		ErrorMessage: string
 	)->())?;
-	
+
 	-- This function will be called when SaveData.ProductCredit is modified by
 	-- LS:ProductCreditGive() or LS:ProductCreditUse().
 	ProductCreditChanged: ((
@@ -360,34 +367,34 @@ export type LockerSpec = {
 		ChangeAmount: number,
 		UserData: any
 	)->())?;
-	
+
 	--
 	-- Optional configuration values
 	--
-	-- If a value is nil, then the corresponding Module.Default_* value will be 
+	-- If a value is nil, then the corresponding Module.Default_* value will be
 	-- used instead. You can use .QueryConfig() function to query these
 	-- the same way that the module checks them.
-	
+
 	VerboseLogs: boolean?;
-	
-	-- If set to true, DataStores will be read from but never modified. Session 
-	-- locks pretend to be obtained, but they haven't actually been obtained. 
+
+	-- If set to true, DataStores will be read from but never modified. Session
+	-- locks pretend to be obtained, but they haven't actually been obtained.
 	ReadOnlyDataStores: boolean?;
-	
+
 	-- Maximum duration save data is allowed to go without saving to maintain the
 	-- server's session lock.
 	MaintainSessionPeriod: number?;
-	
-	-- Other servers will be able to claim the session if the session lock is not 
+
+	-- Other servers will be able to claim the session if the session lock is not
 	-- updated for this period of time.
 	SessionExpiry: number?;
-	
+
 	-- How long to wait between failed header requests.
 	SessionRetryCooldown: number?;
-	
-	-- How many entries can be stored in product purchase history before old 
-	-- purchases are forgotten. Avoid changing this unnecessarily as it will 
-	-- affect save data. 
+
+	-- How many entries can be stored in product purchase history before old
+	-- purchases are forgotten. Avoid changing this unnecessarily as it will
+	-- affect save data.
 	PurchaseHistoryLimit: number?;
 }
 
@@ -402,17 +409,17 @@ end
 
 export type LifecycleStatus =
 	-- Indicates LockerState.SaveData has been replaced with a new table for some
-	-- reason (see LifeCycle reason for ways this may happen). Beware that all 
+	-- reason (see LifeCycle reason for ways this may happen). Beware that all
 	-- ChangeIds will be reset when this happens.
 	| "replaced"
 
 	-- Indicates that SaveData was saved successfully.
 	| "saved"
 
-	-- Indicates the the LockerState was removed and is no longer usable. This 
-	-- will always be called after session has been reset, meanining "replaced" 
-	-- status will always be seen first. So you should never need to clean up 
-	-- state in response to a "destroyed" if that state is already being cleaned 
+	-- Indicates the the LockerState was removed and is no longer usable. This
+	-- will always be called after session has been reset, meanining "replaced"
+	-- status will always be seen first. So you should never need to clean up
+	-- state in response to a "destroyed" if that state is already being cleaned
 	-- up by the code that handles a "replaced".
 	| "destroyed"
 
@@ -420,42 +427,42 @@ export type LifecycleReason =
 	-- status = "saved"
 	-- status = "destroyed"
 	| "none"
-	
+
 	-- status = "replaced":
-	-- Indicates that save data was replaced with newly loaded save 
+	-- Indicates that save data was replaced with newly loaded save
 	-- data.
 	| "r_loaded"
 
 	-- status = "replaced":
-	-- Indicates that the session was released willingly, so save data 
+	-- Indicates that the session was released willingly, so save data
 	-- was replaced with default template save data. The lock may be reaquired
 	-- automatically in the future. This reason will occur when the save data is
 	-- first created, as the release state is intentional here.
 	| "r_released"
 
 	-- status = "replaced":
-	-- Indicates that the session lock was lost unwillingly (another server 
+	-- Indicates that the session lock was lost unwillingly (another server
 	-- probably stole the session lock). The lock may be reacquired automatically
 	-- in the future.
 	--
-	-- This scenario should be extremely rare, however there are two ways it 
+	-- This scenario should be extremely rare, however there are two ways it
 	-- could happen:
 	--
 	-- 1) If the current server repeatedly fails to maintain the session lock for
-	-- 30 minutes straight, for example due to DataStore budgets or Roblox 
+	-- 30 minutes straight, for example due to DataStore budgets or Roblox
 	-- backend issues, and then another server attempts to take the session lock,
-	-- that other server will be able to take it. (The 30 minutes here comes 
+	-- that other server will be able to take it. (The 30 minutes here comes
 	-- from the default LockerSpec.SessionExpiry setting.)
 	--
-	-- 2) If the servers' timestamps are out of sync then another server will be 
-	-- able to take the session lock if it is 30 minutes ahead of the current 
-	-- server. (Or less, if that current server is also in situation #1 where it 
-	-- is struggling to maintain the session lock.) You need to be careful with 
-	-- the settings as you will have frequent session lock stealing if 
-	-- (LockerSpec.SessionExpiry - math.abs(TimestampDifference)) <= 
+	-- 2) If the servers' timestamps are out of sync then another server will be
+	-- able to take the session lock if it is 30 minutes ahead of the current
+	-- server. (Or less, if that current server is also in situation #1 where it
+	-- is struggling to maintain the session lock.) You need to be careful with
+	-- the settings as you will have frequent session lock stealing if
+	-- (LockerSpec.SessionExpiry - math.abs(TimestampDifference)) <=
 	-- LockerSpec.MaintainSessionPeriod.
 	--
-	| "r_lost" 
+	| "r_lost"
 
 --
 -- // Callback details
@@ -464,40 +471,40 @@ export type LifecycleReason =
 --
 -- 1. @CallbackCallingConvention
 --
--- To avoid unnecessary proliferation of units of code execution, all callbacks 
--- will be called directly i.e. without task.spawn(), pcall(), or any other 
+-- To avoid unnecessary proliferation of units of code execution, all callbacks
+-- will be called directly i.e. without task.spawn(), pcall(), or any other
 -- wrappers.
 --
 -- This means you MUST avoid yielding or throwing errors in ALL callbacks, as it
--- will break the module's code. If you need to yield, you should put a 
--- task.spawn() inside your callback, or find some other means to perform work 
--- asynchronously. If you feel about unsure errors, just wrap the body of your 
+-- will break the module's code. If you need to yield, you should put a
+-- task.spawn() inside your callback, or find some other means to perform work
+-- asynchronously. If you feel about unsure errors, just wrap the body of your
 -- callbacks in a pcall.
 --
--- Wrapper code for code execution is trivial, or in the case where it isn't, 
--- it's highly specific to your game and code architecture, so generally the 
--- module does not provide any out of-the-box. You can create those yourself to 
+-- Wrapper code for code execution is trivial, or in the case where it isn't,
+-- it's highly specific to your game and code architecture, so generally the
+-- module does not provide any out of-the-box. You can create those yourself to
 -- suit your own needs.
 --
 -- 2. @CallbackTableMutation
 --
--- Secondly, to avoid lots of unnecessary memory copying and weird table 
+-- Secondly, to avoid lots of unnecessary memory copying and weird table
 -- identification issues, tables are always passed directly into callbacks
 -- without modification.
 --
--- If a callback is expected to modify or perform some operation on a table (in 
--- the case of this module, it's usually a SaveData table), the callback is 
--- expected to mutate the input table (and does not need to return it), rather 
+-- If a callback is expected to modify or perform some operation on a table (in
+-- the case of this module, it's usually a SaveData table), the callback is
+-- expected to mutate the input table (and does not need to return it), rather
 -- than return a new table.
 
 --
 -- // Logging details
 --
--- You may want to log things in different ways, so generally the module tries 
--- to give you as much control over logging as possible. DataStore errors are 
+-- You may want to log things in different ways, so generally the module tries
+-- to give you as much control over logging as possible. DataStore errors are
 -- logged via the LockerSpec.ReportDataStore callback.
 --
--- The module also has some internal vorbose logging which can be enabled for 
+-- The module also has some internal vorbose logging which can be enabled for
 -- debugging/testing purposes. Its use is largely intended to be for myself.
 
 --
@@ -510,31 +517,31 @@ export type LifecycleReason =
 type MySaveData = SessionLocker.SaveData & { ... }
 
 --]]
--- To avoid lots of type checking complexity and annoying boilerplate, I have 
--- decided it is best to avoid having the module track your canonical save data 
--- type. Instead, whenever your code recieves a "SaveData" type, it will be of 
--- type any, and you will have to manually convert it to your own type every 
+-- To avoid lots of type checking complexity and annoying boilerplate, I have
+-- decided it is best to avoid having the module track your canonical save data
+-- type. Instead, whenever your code recieves a "SaveData" type, it will be of
+-- type any, and you will have to manually convert it to your own type every
 -- time you want to use it. To conveniently access save data in your canonical
 -- type, I recommend defining a function such as:
 --[[
 
 local function ToMySaveData(SD: any) return SD :: MySaveData end
 local function GetMySaveData(LS: SessionLocker.LockerState) return LS.SaveData :: MySaveData end
-	
+
 --]]
--- You can also define a LockerSpec.SaveDataReplaced function, which will be 
+-- You can also define a LockerSpec.Lifecycle function, which will be
 -- called whenever LockerState.SaveData gets replaced by a new table. This can
 -- store a correctly typed field somewhere, like:
 --[[
 
-LockerSpec.SaveDataReplaced = function(LS) MySaveData[LS.UserId] = LS end
-	
+LockerSpec.Lifecycle = function(LS) MySaveData[LS.UserId] = LS.SaveData end
+
 --]]
--- Note that to clean this up you should clear any stored data when the 
--- LockerState itself gets cleaned up by your code after 
+-- Note that to clean this up you should clear any stored data when the
+-- LockerState itself gets cleaned up by your code after
 -- LockerState:SessionUpdate() indicates the LockerState should be removed.
 --
--- Finally, I also recommend having a separate ModuleScript for storing 
+-- Finally, I also recommend having a separate ModuleScript for storing
 -- historical save data types, migrators, and patchers, isolated from the your
 -- codebase. e.g.
 --[[
@@ -562,19 +569,19 @@ return {
 --
 -- // Using save data
 --
--- This module is effectively just an API for doing session locked DataStores. 
--- As such it provides no metatable magic, syntax sugar, client/server 
+-- This module is effectively just an API for doing session locked DataStores.
+-- As such it provides no metatable magic, syntax sugar, client/server
 -- replication, changed signals, etc.
 --
--- Reading and writing the save data is as easy as directly accessing the 
+-- Reading and writing the save data is as easy as directly accessing the
 -- LockerState.SaveData table. If you want to have your own stuff wrapped around
--- it, you can just define your own getters/setters, and also a 
--- LockerSpec.SaveDataReplaced callback.
+-- it, you can define your own getters/setters, and also define a
+-- LockerState.Lifecycle callback to update the save data table.
 
 --
 -- // Modifying save data structure
 --
--- When you want to make a change to save data structure for a particular 
+-- When you want to make a change to save data structure for a particular
 -- LockerSpec, you should:
 --
 -- 1) Increment LockerSpec.SaveDataVersion.
@@ -585,56 +592,56 @@ return {
 -- create a new migrator from the previous Version to the new Version.
 --
 -- If the changes you are making to the save data are 100% backwards compatible,
--- such as adding optional fields to the canonical SaveData type. In that case 
--- you should just go ahead with modifying the canonical save data type, apply 
--- those changes also to the duplicate type in the migrator code, then publish 
--- your game and call it a day. 
+-- such as adding optional fields to the canonical SaveData type. In that case
+-- you should just go ahead with modifying the canonical save data type, apply
+-- those changes also to the duplicate type in the migrator code, then publish
+-- your game and call it a day.
 
 --
 -- // Migrators and patches
 --
 -- @MigratorDocs
 --
--- Migrators, Patchers, LockerSpec.SaveDataCreator(), and 
--- LockerSpec.MergeOfflineSaveDataWithLoadedSaveData() are the only mechanisms 
+-- Migrators, Patchers, LockerSpec.SaveDataCreator(), and
+-- LockerSpec.MergeOfflineSaveDataWithLoadedSaveData() are the only mechanisms
 -- the module has for modifying save data tables. Except for the keys defined in
--- the .SaveData type (which are managed by the module), the module will never 
+-- the .SaveData type (which are managed by the module), the module will never
 -- create, modify, or delete keys on its own.
 --
--- Migrators and Patchers should always be stored in the array in terms of the 
--- LockerSpec.SaveDataVersion of the input. So if you have a migrator from 
--- version 5 to version 6, or a Patcher for version 5, then in both cases you 
+-- Migrators and Patchers should always be stored in the array in terms of the
+-- LockerSpec.SaveDataVersion of the input. So if you have a migrator from
+-- version 5 to version 6, or a Patcher for version 5, then in both cases you
 -- should store the function at index 5 of the Migrators or Patchers table.
 --
--- Because SaveDataVersions must be consecutive, and a Migrator must always be 
--- defined between versions, no holes are permitted in the Migrators array. On 
--- the other hand, Patchers are optional, so holes are permitted in the Patchers 
+-- Because SaveDataVersions must be consecutive, and a Migrator must always be
+-- defined between versions, no holes are permitted in the Migrators array. On
+-- the other hand, Patchers are optional, so holes are permitted in the Patchers
 -- array.
 --
 
 --
 -- // Migrators
 --
--- It is required that you create a Migrator for every version change. A 
+-- It is required that you create a Migrator for every version change. A
 -- beneficial consequence of this is that you can define fields in SaveData that
 -- are guaranteed to exist, because you can just get the migrator to create the
--- field. So this enables you to avoid having to check things like "if 
+-- field. So this enables you to avoid having to check things like "if
 -- SaveData.Inventory then" if you can just guarantee that SaveData.Inventory is
 -- always defined.
 --
--- A Migrator function takes a table of SaveData from the previous 
--- version as input and mutates it so that the save data now has the next 
+-- A Migrator function takes a table of SaveData from the previous
+-- version as input and mutates it so that the save data now has the next
 -- version. e.g. it takes SaveData from version 1 and mutates it to version 2.
 --
--- Mutators generally should not modify any values defined in .SaveData. DO NOT 
--- modify the version and session values, because they will be modified 
--- appropriately outside of the migrator. It is fine for you to do things like 
+-- Mutators generally should not modify any values defined in .SaveData. DO NOT
+-- modify the version and session values, because they will be modified
+-- appropriately outside of the migrator. It is fine for you to do things like
 -- like make changes to SaveData.PurchaseHistory or SaveData.ProductCredit.
 
--- It also should return the new VersionPatch of the save data. For a new 
--- migrator, I recommend just returning 0, then every time you modify the 
--- migrator function you should increment that value. This return value should 
--- always be the same as the corresponding Patcher's return value. See Patchers 
+-- It also should return the new VersionPatch of the save data. For a new
+-- migrator, I recommend just returning 0, then every time you modify the
+-- migrator function you should increment that value. This return value should
+-- always be the same as the corresponding Patcher's return value. See Patchers
 -- documentation below for further explanation.
 --
 -- After a Migrator is executed, the module will set SaveData.Version += 1.
@@ -656,10 +663,10 @@ Migrators[1] = function(SD_V1: SaveData_V1)
 
 	-- Delete something from the old version.
 	SD_V2.OldValue = nil :: any
-	
+
 	-- Add something to the new version.
-	SD_V2.NewValue = true 
-	
+	SD_V2.NewValue = true
+
 	-- Return a VersionPatch of 0.
 	return 0
 end
@@ -669,43 +676,43 @@ end
 --
 -- // Patchers
 --
--- Each version can optionally have a Patcher function associated with it. The 
--- purpose of a Patcher is to fix any issues with SaveData caused by the 
+-- Each version can optionally have a Patcher function associated with it. The
+-- purpose of a Patcher is to fix any issues with SaveData caused by the
 -- previous Migrator (e.g. if there was a bug in the version 4->5 migrator, then
 -- the patcher for version 5 can fix it) or caused by a buggy Patcher function.
 --
 -- If defined, it will be called every time the data loads, including before the
--- data is migrated for the first time. By this I mean that if you are 
--- migrating from version 2 -> 3 -> 4, and there are Patchers for versions 2, 3, 
--- and 4, then only the Patcher for Version 2 will be called, because all the 
+-- data is migrated for the first time. By this I mean that if you are
+-- migrating from version 2 -> 3 -> 4, and there are Patchers for versions 2, 3,
+-- and 4, then only the Patcher for Version 2 will be called, because all the
 -- subsequent migrators are guaranteed to be correct.
 --
--- Patchers mutate the input SaveData similarly to migrators, and have the same 
+-- Patchers mutate the input SaveData similarly to migrators, and have the same
 -- restrictions on what fields you can modify.
 --
--- Patchers have an additional argument, the value of SaveData.VersionPatch. 
--- (This saves you having to lookup it up in the table yourself and do all the 
--- type checking and stuff if you don't care about that.) This argument can be 
--- used to identify what "patch version" of the data the function is working 
+-- Patchers have an additional argument, the value of SaveData.VersionPatch.
+-- (This saves you having to lookup it up in the table yourself and do all the
+-- type checking and stuff if you don't care about that.) This argument can be
+-- used to identify what "patch version" of the data the function is working
 -- with, so it knows if e.g. it is working with data that has already been fixed
--- so doesn't need to be changed, or if the data it is looking at is still 
+-- so doesn't need to be changed, or if the data it is looking at is still
 -- broken and needs fixing.
 --
--- The Patcher must also return the new VersionPatch value. (Again it should not 
+-- The Patcher must also return the new VersionPatch value. (Again it should not
 -- set it directly on the SaveData, it should return it.) Then the module will
 -- set SaveData.VersionPatch to that returned value.
 --
--- There is no limitation on how you choose values for VersionPatch, aside from 
--- that it must be a number. However it is generally a good idea to start 
--- VersionPatch at 0 (have the original migrator function return 0), then 
+-- There is no limitation on how you choose values for VersionPatch, aside from
+-- that it must be a number. However it is generally a good idea to start
+-- VersionPatch at 0 (have the original migrator function return 0), then
 -- increment it by 1 every time you change you something (modify the patcher
 -- function / migrator function).
 --
 -- As mentioned earlier, the Migrator function must also return the VersionPatch
--- value. The Patcher and Migrator functions with the same Version as output 
--- should return the same VersionPatch value. e.g. the functions stored at 
--- Migrators[1] and Patchers[2] should be return the same VersionPatch. If you 
--- want, you can make a variable for each version's patch value, such as "local 
+-- value. The Patcher and Migrator functions with the same Version as output
+-- should return the same VersionPatch value. e.g. the functions stored at
+-- Migrators[1] and Patchers[2] should be return the same VersionPatch. If you
+-- want, you can make a variable for each version's patch value, such as "local
 -- SaveData_V5_Patch = 2" and use that as the return value for all patchers. But
 -- you don't have to.
 
@@ -721,7 +728,7 @@ Patchers[Version] = function(SD_V: SaveData_Version, VersionPatch: number)
 		local SD_Old: SD_OldVersion = SD_V
 		SD_V.Value = SD_Old.Value
 	end
-	
+
 	-- Return the new value we should use for VersionPatch.
 	return 1
 end
@@ -731,13 +738,13 @@ end
 --
 -- // What to do if you discover a problem in your migrator function:
 --
--- 1) Edit the broken code as necessary to fix the problems e.g. if the problem 
+-- 1) Edit the broken code as necessary to fix the problems e.g. if the problem
 -- was in the migrator function then you should fix the migrator function, or if
 -- the problem was in the patcher then you should just fix the patcher.
 --
--- 2) Create/modify a patcher function for the version of the migrator, to 
--- automatically fix problems introduced into the save data by the migrator or 
--- other issue (e.g. a bug in the patcher). Make sure to use the VersionPatch 
+-- 2) Create/modify a patcher function for the version of the migrator, to
+-- automatically fix problems introduced into the save data by the migrator or
+-- other issue (e.g. a bug in the patcher). Make sure to use the VersionPatch
 -- argument to check whether the data needs to be fixed or not.
 --
 -- 3) Choose a new "latest" VersionPatch value (e.g. increment from the previous
@@ -751,16 +758,16 @@ end
 
 -- Use this for easily creating new save data from a template table.
 function Module.TableDeepCopy<T>(Table: T): T
-	
+
 	local Result = {
 		Root = (nil :: any) :: T;
 	}
-	
-	-- Duplicate references to the same table are handled correctly by caching 
-	-- all the new tables we create. We don't handle table keys though. (Save 
+
+	-- Duplicate references to the same table are handled correctly by caching
+	-- all the new tables we create. We don't handle table keys though. (Save
 	-- data should never have duplicate references in it though.)
 	local TableCache: {[any]: any} = {}
-	
+
 	type Entry = {
 		Source: {[any]: any};
 		Parent: {[any]: any};
@@ -776,12 +783,12 @@ function Module.TableDeepCopy<T>(Table: T): T
 		if not Entry then
 			break
 		else
-			
+
 			local CachedTable = TableCache[Entry.Source]
 			if CachedTable then
 				Entry.Parent[Entry.Key] = CachedTable
 			else
-				
+
 				local Clone = table.clone(Entry.Source)
 				Entry.Parent[Entry.Key] = Clone
 				for Key, Value in Clone do
@@ -796,32 +803,32 @@ function Module.TableDeepCopy<T>(Table: T): T
 			end
 		end
 	end
-	
+
 	return Result.Root
 end
 
--- Use this for restoring a table to an older backup of itself (created using 
+-- Use this for restoring a table to an older backup of itself (created using
 -- .TableDeepCopy with the original table before making modifications to it).
 function Module.TableRestoreBackup<A,B,C,D>(
 	Table: {[A]: B},
 	Backup: {[C]: D}
 ): {[C]: D}
 	table.clear(Table)
-	local _Table: {[C]: D} = Table :: any 
+	local _Table: {[C]: D} = Table :: any
 	for Key, Value in Backup do
 		_Table[Key] = Value
 	end
 	return _Table
 end
 
--- Logs variations of a task's error message. The variations will be 
+-- Logs variations of a task's error message. The variations will be
 -- with/without the traceback, and with/without the detailed error message.
 --
--- This means that even if the error message or traceback contains highly 
--- specific, infrequent information (such as a specific player's UserId), the 
--- variations of the error without that information will still be aggregated by 
--- the experience's Error Report so you can easily find out that the error is 
--- happening. Once you know it is happening, you should be able to filter the 
+-- This means that even if the error message or traceback contains highly
+-- specific, infrequent information (such as a specific player's UserId), the
+-- variations of the error without that information will still be aggregated by
+-- the experience's Error Report so you can easily find out that the error is
+-- happening. Once you know it is happening, you should be able to filter the
 -- Error Report using the Identifier argument you gave to the log.
 --
 function Module.LogErrorVariations(Identifier: string, ErrorMessage: string)
@@ -830,15 +837,15 @@ function Module.LogErrorVariations(Identifier: string, ErrorMessage: string)
 	local LogError = ("%s failed with error:\n%s")
 		:format(Identifier, tostring(ErrorMessage))
 	local Traceback = debug.traceback()
-	
+
 	warn(LogPlain)
 	warn(LogPlain.."\n"..Traceback)
 	warn(LogError)
 	warn(LogError.."\n"..Traceback)
 end
 
--- An alternative way to get your logs to be aggreggated by the Error Report 
--- aggregation is to filter out user IDs and other specific information from 
+-- An alternative way to get your logs to be aggreggated by the Error Report
+-- aggregation is to filter out user IDs and other specific information from
 -- error messages using string.gsub().
 --
 -- This function achieves that using an array of filters, e.g. you might
@@ -865,14 +872,14 @@ end
 -- decides to use the LockerState.LogPrefix field.
 function Module.LogPrefixCreate(
 	ShowModule: boolean,
-	
+
 	RealUserId: number,
-	
-	-- If UserId used for DataStore is different from the player's actual UserId 
-	-- then we will log both. (It is sometimes a useful thing for debugging 
+
+	-- If UserId used for DataStore is different from the player's actual UserId
+	-- then we will log both. (It is sometimes a useful thing for debugging
 	-- purposes to use another player's UserId.)
 	DataStoreUserId: number?,
-	
+
 	-- If we want to show a player's name, or some other text beforehand, we can
 	-- do that here.
 	Name: string?
@@ -892,27 +899,27 @@ function Module.LogPrefixCreate(
 	return table.concat(Str)
 end
 
--- A way of categorizing DataStore request errors based on the message returned 
--- by pcall(). 
+-- A way of categorizing DataStore request errors based on the message returned
+-- by pcall().
 --
 -- Based on the table of error codes from:
 -- https://create.roblox.com/docs/cloud-services/datastores
 --
--- (Note: The table has since been removed from that page, so I guess Roblox 
+-- (Note: The table has since been removed from that page, so I guess Roblox
 -- isn't committed to supporting these error codes.)
 --
--- Lower values mean the issue is on our end, higher values mean issue is on 
+-- Lower values mean the issue is on our end, higher values mean issue is on
 -- Roblox's end.
 
 export type RequestErrorKind =
 	-- Errors relating to our code (shouldn't retry, should log).
 	| "script"
-	
-	-- Errors that may be temporary or are unknown (should retry, but maybe not 
+
+	-- Errors that may be temporary or are unknown (should retry, but maybe not
 	-- indefinitely, and should log).
 	| "misc"
-	
-	-- Errors relating to request limits or Roblox server issues (should retry 
+
+	-- Errors relating to request limits or Roblox server issues (should retry
 	-- indefinitely, and shouldn't log).
 	| "backend"
 
@@ -979,17 +986,17 @@ Module.Default_LockerSpec_ReportDataStoreError = function(
 	ErrorMessage: string
 )
 	local Message = " ReportDataStoreError:\n"..tostring(ErrorMessage)
-	
+
 	-- If verbose logs are enabled, we give the error message with full details.
 	local LSpec: LockerSpec = LS.LockerSpec
 	if Module.QueryConfig(LSpec.VerboseLogs, Module.Default_VerboseLogs) then
 		local LogPrefix: string = LS.LogPrefix
 		warn(LS.LogPrefix..Message)
-		
+
 	-- Otherwise, we filter out all identifying information and just give the
 	-- generic message, if it isn't a known backend error.
 	elseif Module.GetRequestErrorKind(ErrorMessage) ~= "backend" then
-		
+
 		local Filters = {}
 		for _, UserId in LS.AssociatedUserIds do
 			Filters[#Filters+1] = {tostring(UserId), "{userid}"}
@@ -1008,35 +1015,35 @@ export type SaveData = {
 	Version: number;
 	VersionPatch: number;
 	Session: SD_Session?;
-	
-	-- These may be modified within your Migrators, but should not be modified 
+
+	-- These may be modified within your Migrators, but should not be modified
 	-- directly by your own code.
 	Purchases: {SD_Purchase}?; -- Used by ProductPurchaser.
 	ProductCredit: {SD_ProductCredit}?; -- Used by ProductCredit operations.
 	RemoteChanges: {SD_RemoteChange}?; -- Used by RemoteChange operations.
 }
 
--- This type is what needs to be defined by your code that creates 
+-- This type is what needs to be defined by your code that creates
 -- RemoteChanges, and to be read by your code that processes RemoteChanges!
 export type SD_RemoteChange_Base = {
-	
-	-- Kind: Used to identify what operation this RemoteChange is doing. Defined 
+
+	-- Kind: Used to identify what operation this RemoteChange is doing. Defined
 	-- by the user.
 	K: string;
-	
+
 }
 
--- You don't need to worry about these fields as they will be created & managed 
+-- You don't need to worry about these fields as they will be created & managed
 -- entirely by the module.
 export type SD_RemoteChange_Internal = {
-	
+
 	-- Id: of the RemoteChange, used to disambiguate similar RemoteChanges.
 	I: number;
-	
+
 	-- At: Timestamp when this RemoteChange was created. Currently unused, but
 	-- may be useful in the future.
 	A: number;
-	
+
 }
 export type SD_RemoteChange = SD_RemoteChange_Base & SD_RemoteChange_Internal
 
@@ -1116,11 +1123,16 @@ export type LoadStatus =
 	-- it to release the lock, or for the lock to expire.
 	| "session_is_locked"
 
-	-- The SaveData.Version field isn't known by this server. The save data is 
+	-- The SaveData.Version field isn't known by this server. The save data is
 	-- probably from a newer server (the game was recently updated most likely).
 	| "invalid_version"
 
 	-- SaveData has loaded and the session lock has been obtained.
+	--
+	-- Any other LoadStatus other than this means the LockerSpec.SaveData table
+	-- is a transient, offline version rather than the loaded, persistent,
+	-- savable version.
+	--
 	| "loaded"
 
 export type LockerState = {
