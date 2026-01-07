@@ -24,7 +24,7 @@ local LockerSpec: SessionLocker.LockerSpec = {
 			VersionPatch = 0;
 			Purchases = {};
 			ProductCredit = {};
-			
+
 			ExampleMoney = 0;
 			ExamplePlaytime = 0;
 		};
@@ -37,16 +37,16 @@ local LockerSpec: SessionLocker.LockerSpec = {
 
 type PlayerState = {
 	SessionLockerState: SessionLocker.LockerState;
-	
+
 	-- Independent of Player sessions.
 	UserId: number;
 	InfiniteProductCredit: boolean?;
-	
+
 	-- Reset with each new Player session.
 	Player: Player;
 	HasLeft: boolean;
 	ClientReady: boolean; -- This will never be set to true for mocked players.
-	
+
 	Replicated: PS_Replicated;
 }
 type PS_Replicated = {
@@ -60,16 +60,16 @@ local State = (function() return { -- Seal the table.
 	-- Only players that are still in the game will be present here. As soon as
 	-- they leave they will be removed.
 	PlayerState_ByPlayer = {} :: {[Player]: PlayerState};
-	
+
 	-- PlayerStates which are still being saved etc. will be present here even if
 	-- the original players have left the game.
 	PlayerState_ByUserId = {} :: {[number]: PlayerState};
-	
+
 	ServerClosing = false;
 	LastHeartbeatNow = os.clock();
-	
+
 	ProductPurchaser = SessionLocker.ProductPurchaserCreate();
-	
+
 	RemoteChangeSender = SessionLocker.RemoteChangeSenderCreate(LockerSpec);
 
 } end)()
@@ -79,20 +79,20 @@ local function PlayerRemoving(Player)
 	if PS then
 		State.PlayerState_ByPlayer[Player] = nil
 		assert(PS.Player == Player)
-		
+
 		PS.SessionLockerState:MarkShouldRelease()
 		PS.HasLeft = true
 	end
 end
 local function PlayerAdded(Player)
-	
+
 	-- Prevent players from joining when the server is shutting down.
 	if State.ServerClosing then
 		return
 	end
-	
+
 	local UserId = Player.UserId
-	
+
 	-- Obtaining a PlayerState
 	local PS: PlayerState
 	local ExistingPS = State.PlayerState_ByUserId[UserId]
@@ -112,14 +112,14 @@ local function PlayerAdded(Player)
 		end
 		State.PlayerState_ByUserId[UserId] = PS
 	end
-	
+
 	-- Session initialization.
 	State.PlayerState_ByPlayer[Player] = PS
 	PS.Player = Player
 	PS.HasLeft = false
 	PS.ClientReady = false
 	PS.SessionLockerState:MarkShouldAcquire()
-	
+
 	PS.Replicated = {
 		ProductCreditDirty = true;
 	}
@@ -132,21 +132,21 @@ end
 
 RunService.Heartbeat:Connect(function()
 	debug.profilebegin("L_ServerHeartbeat")
-	
+
 	local HeartbeatNow = os.clock()
 	local ServerTimeNow = workspace:GetServerTimeNow()
-	
+
 	local HeartbeatDelta = HeartbeatNow - State.LastHeartbeatNow
 	State.LastHeartbeatNow = HeartbeatNow
-	
+
 	for _, PS in State.PlayerState_ByPlayer do
-		
+
 		if PS.ClientReady then
-			
+
 			local R = PS.Replicated
-			
+
 			local LS = PS.SessionLockerState
-			
+
 			if R.ProductCreditDirty then
 				R.ProductCreditDirty = false
 				--[[
@@ -155,7 +155,7 @@ RunService.Heartbeat:Connect(function()
 					if PS.InfiniteProductCredit then true else false)
 				--]]
 			end
-			
+
 			if R.LoadStatus ~= LS.LoadStatus or
 				R.LoadMinimumServerVersion ~= LS.LoadMinimumServerVersion
 			then
@@ -167,15 +167,16 @@ RunService.Heartbeat:Connect(function()
 			end
 		end
 	end
-	
+
 	for _, PS in State.PlayerState_ByUserId do
 		if PS.SessionLockerState:SessionUpdate(HeartbeatNow) then
+			PS.SessionLockerState:MarkDeleted()
 			State.PlayerState_ByUserId[PS.UserId] = nil
 		end
 	end
-	
+
 	State.ProductPurchaser:Update()
-	
+
 	debug.profileend() -- L_ServerHeartbeat
 end)
 
@@ -186,7 +187,7 @@ game:BindToClose(function()
 	end
 	while
 		next(State.PlayerState_ByUserId) or
-		next(State.ProductPurchaser.PPPs_ByLS) or
+		State.ProductPurchaser:HasIncompletePurchases() or
 		State.RemoteChangeSender:IsSending()
 	do
 		task.wait()
@@ -196,28 +197,28 @@ end)
 -- This is typically a ModuleScript in ReplicatedStorage shared by server and client.
 local Shared = {
 	ProductId = {
-		ExampleProduct = -1;	
+		ExampleProduct = -1;
 	} :: {[string]: number};
 }
 
 local ProductProcessFunctions: {[number]: SessionLocker.ProductProcessFunction} = {
 	[Shared.ProductId.ExampleProduct] = function(Op: SessionLocker.ProductOp, LS: SessionLocker.LockerState)
-		return true
+		return true, nil
 	end;
 }
 
 MarketplaceService.ProcessReceipt = function(
 	ReceiptInfo: SessionLocker.ReceiptInfo
-): (Enum.ProductPurchaseDecision?)
-	
+): (Enum.ProductPurchaseDecision)
+
 	local Result = Enum.ProductPurchaseDecision.NotProcessedYet
-	
+
 	local PF = ProductProcessFunctions[ReceiptInfo.ProductId]
 	if PF then
-		
+
 		local PS: PlayerState = State.PlayerState_ByUserId[ReceiptInfo.PlayerId]
 		if not PS then
-			-- Wait a frame for PlayerAdded signals to fire, just in case this 
+			-- Wait a frame for PlayerAdded signals to fire, just in case this
 			-- callback gets executed at the same moment when a player joins.
 			-- I don't actually know if this is necessary, but for some reason
 			-- I am superstitious about it... maybe due to the polling-based
@@ -226,7 +227,7 @@ MarketplaceService.ProcessReceipt = function(
 			PS = State.PlayerState_ByUserId[ReceiptInfo.PlayerId]
 		end
 		if PS then
-			
+
 			if State.ProductPurchaser:YieldUntilProductIsProcessedAndSaved(
 					PS.SessionLockerState, PF, ReceiptInfo)
 			then
@@ -234,7 +235,7 @@ MarketplaceService.ProcessReceipt = function(
 			end
 		end
 	end
-	
+
 	return Result
 end
 
@@ -261,12 +262,14 @@ RequestProductPurchase.OnServerEvent:Connect(function(
 	local ProcessFunction = ProductProcessFunctions[ProductId]
 	if PS then
 		local LS = PS.SessionLockerState
+		local PPP = SessionLocker.DummyPPP_FromIds(
+			ProcessFunction, ProductId, Player.UserId)
 		if LS.LoadStatus == "loaded" and
 			ProcessFunction and
-			ProcessFunction("validate", LS, ProductId)
+			ProcessFunction("validate", LS, ProductId, PPP)
 		then
 			if AttemptUseProductCredit(PS, ProductId, 1) then
-				ProcessFunction("apply", LS, ProductId)
+				ProcessFunction("apply", LS, ProductId, PPP)
 			else
 				MarketplaceService:PromptProductPurchase(Player, ProductId)
 			end
