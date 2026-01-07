@@ -15,23 +15,23 @@
 -- Version 2:
 --
 -- >> (See @DisableAPIs) After the SaveData table has been created for the first
--- time, it will never be replaced if DisableAPIs is enabled. Useful when
--- usage code wants permanently customize save data for fake players or testing
+-- time, it will never be replaced if DisableAPIs is enabled. Useful when 
+-- usage code wants permanently customize save data for fake players or testing 
 -- purposes or whatever.
 --
 -- Version 3:
 --
--- >> Added .LogErrorVariations() which can be used to log variations of an
--- error message so that the error will be aggregated in the experience's Error
+-- >> Added .LogErrorVariations() which can be used to log variations of an 
+-- error message so that the error will be aggregated in the experience's Error 
 -- Report and then more specific variations can be specifically searched for.
 --
--- >> Added .GsubFilter() which can be used to filter out specific information
+-- >> Added .GsubFilter() which can be used to filter out specific information 
 -- from logs, so that they get aggregated in the experience's Error Report.
 --
 -- >> Added .TableRestoreBackup() which can be used to restore a table to an older
 -- version of itself (that was previously deep copied using .TableDeepCopy).
 --
--- >> Added .QueryConfig() function for querying the value of a LockerSpec
+-- >> Added .QueryConfig() function for querying the value of a LockerSpec 
 -- config value in the same way that the module does it.
 --
 -- >> Added .GetRequestErrorKind() function and .RequestErrorKind enum, used
@@ -39,8 +39,8 @@
 --
 -- Version 4: (Breaking changes!)
 --
--- >> Reworked the easy API so that it works more like other session locking
--- libraries, and so that it now supports session reuse and save data versions
+-- >> Reworked the easy API so that it works more like other session locking 
+-- libraries, and so that it now supports session reuse and save data versions 
 -- and migration.
 --
 -- >> Added MigratorBuilder which makes the process of creating migrators and
@@ -49,33 +49,33 @@
 -- Version 5: (Breaking changes!)
 --
 -- >> Made method calls the preferred way of calling functions because they have
--- better UX. All methods are still available as normal functions as well,
+-- better UX. All methods are still available as normal functions as well, 
 -- prefixed by the acronym of the type name, for those who prefer that style.
 --
--- >> Added LockerState:WhenChangesSaved() and LockerState:YieldUntilSaved(), a
--- proper robust API for tracking save data changes. Use of ChangeIds is no
+-- >> Added LockerState:WhenChangesSaved() and LockerState:YieldUntilSaved(), a 
+-- proper robust API for tracking save data changes. Use of ChangeIds is no 
 -- longer recommended.
 --
--- >> Added LockerSpec.Lifecycle() callback, replacing other LockerSpec
--- callbacks related to save data. This makes the API much simpler and better
+-- >> Added LockerSpec.Lifecycle() callback, replacing other LockerSpec 
+-- callbacks related to save data. This makes the API much simpler and better 
 -- communicates how save data changes over time.
 --
 -- >> Changed LoadStatus and ProductOp (previously named ProductProcessOp) enums
--- to unions of string singletons instead of being numbers.
+-- to unions of string singletons instead of being numbers. 
 --
 -- >> Fixed bug where yielded product processing threads would never be resumed
 -- even when the LockerState is cleaned up.
 --
--- >> Added .RemoteChangeSenderCreate() and RemoteChangeSender type, and a
+-- >> Added .RemoteChangeSenderCreate() and RemoteChangeSender type, and a 
 -- LockerSpec.ProcessRemoteChange() callback. Remote Changes are now supported!
 --
--- >> Added .ProductPurchaseCreate() and ProductPurchaser to handle product
--- processing in a way that is entirely separate from LockerStates. Product
+-- >> Added .ProductPurchaseCreate() and ProductPurchaser to handle product 
+-- processing in a way that is entirely separate from LockerStates. Product 
 -- stuff is now entirely optional.
 --
 -- >> Improved the name of MigratorBuilder methods/functions.
 --
--- >> EasyStore and EasyProfiles can now do everything that
+-- >> EasyStore and EasyProfiles can now do everything that 
 --
 -- >> Lots of other small changes or renamed things.
 --
@@ -85,7 +85,7 @@
 
 local Module = {}
 
--- NOTE: This module is safe to be required on both server & client. You can
+-- NOTE: This module is safe to be required on both server & client. You can 
 -- require it on the client to get access to LoadStatus, SaveData or other thing
 -- that you may want to replicate.
 
@@ -107,7 +107,7 @@ local Module = {}
 -- EasyProfile.IsLoaded: boolean
 -- |
 -- EasyProfile.ProductCreditChanged(ProductId, ChangeAmount): Signal
--- EasyProfile.Lifecycle(Status, Reason): Signal
+-- EasyProfile.Lifecycle(Status, Reason): Signal 
 -- |-	EasyProfile.Destroyed(Reason): Signal
 -- |-	EasyProfile.Saved(Reason): Signal
 -- |-	EasyProfile.Replaced(Reason): Signal
@@ -1136,80 +1136,80 @@ export type LoadStatus =
 	| "loaded"
 
 export type LockerState = {
-	
+
 	--
 	-- Independent of session locks
 	--
-	
+
 	AssociatedUserIds: {number};
 	DataStoreKey: string;
 	LockerSpec: LockerSpec;
 	LogPrefix: string;
-	
+
 	-- Used for disabling saving / loading. Useful if you have things like
 	-- fake players or want to temporarily turn of DataStore requests.
 	DisableAPIs: boolean?;
-	
+
 	InUse: {[any]: boolean};
 	IsRemoved: boolean;
-	
+
 	-- Reset with each new session
-	
-	-- The save data is always present so that it can be used and modified even 
-	-- while the real save data is loading or has failed to load. Upon a 
-	-- successful load, any changes made to the offline save data body will be 
+
+	-- The save data is always present so that it can be used and modified even
+	-- while the real save data is loading or has failed to load. Upon a
+	-- successful load, any changes made to the offline save data body will be
 	-- merged into the newly loaded body.
 	SaveData: SaveData;
-	
-	-- Anything that modifies the save data should increment ChangeId_Pending to 
-	-- inform the library that a change needs to be saved. ChangeId_PendingForce 
-	-- will force data to be saved immediately if it is higher than 
-	-- ChangeId_Saved. ChangeId_Saved indicates the highest ChangeId which has 
+
+	-- Anything that modifies the save data should increment ChangeId_Pending to
+	-- inform the library that a change needs to be saved. ChangeId_PendingForce
+	-- will force data to be saved immediately if it is higher than
+	-- ChangeId_Saved. ChangeId_Saved indicates the highest ChangeId which has
 	-- been written to DataStore.
 	--
 	-- These get reset to 0 when SaveData is replaced, so they are not sufficient
-	-- for robustly tracking whether data has been saved or not. In order to 
-	-- robustly check whether data has been saved you should use 
+	-- for robustly tracking whether data has been saved or not. In order to
+	-- robustly check whether data has been saved you should use
 	-- LockerState:WhenChangesSaved() or LockerState:YieldUntilSaved().
 	--
 	ChangeId_Pending: number;
 	ChangeId_PendingForce: number;
 	ChangeId_Saved: number;
 	SavedConnections: {SavedConnection};
-	
+
 	ProcessedRemoteChanges: {[number]: boolean};
-	
+
 	LoadStatus: LoadStatus;
-	-- You could use this value in combination with MemoryStores to teleport 
+	-- You could use this value in combination with MemoryStores to teleport
 	-- players to servers which a SaveData version of this value or higher, if
 	-- a player's data fails to load due to it having an unknown version.
 	LoadMinimumServerVersion: number?;
 	SessionLoadState: SessionLoadState?;
 	SessionState: SessionState?;
-	
+
 	--
 	-- Methods
 	--
-	
+
 	SessionUpdate: (LS: LockerState, HeartbeatNow: number)->(boolean);
-	
-	-- These two methods must be called to control the lifetime of the 
+
+	-- These two methods must be called to control the lifetime of the
 	-- LockerState. (Merely creating the LockerState will not start loading the
 	-- data.)
 	--
-	-- LockerStates can be reused when a player leaves and rejoins the game. All 
+	-- LockerStates can be reused when a player leaves and rejoins the game. All
 	-- you need to do is make sure your code keeps track of LockerStates in a way
-	-- that is independent of Player instances (e.g. track them by UserId 
+	-- that is independent of Player instances (e.g. track them by UserId
 	-- instead), then call these functions.
 	MarkShouldAcquire: (LS: LockerState)->();
 	MarkShouldRelease: (LS: LockerState)->();
-	
-	-- These two methods can be called to indicate to the module that save data 
-	-- needs to be saved. It is also used to track "changes" to save data, so 
+
+	-- These two methods can be called to indicate to the module that save data
+	-- needs to be saved. It is also used to track "changes" to save data, so
 	-- that we can tell when a particular change saves (or fails to save) later.
 	MarkShouldSave: (LS: LockerState)->();
 	MarkForceSave: (LS: LockerState)->();
-	
+
 	-- Used to know when something is saved, after calling one of the above two
 	-- functions.
 	WhenChangesSaved: (
@@ -1218,7 +1218,7 @@ export type LockerState = {
 		UserData: any?
 	)->(SavedConnection);
 	YieldUntilChangesSaved: (LS: LockerState)->(boolean);
-	
+
 	ProductCreditQuery: (LS: LockerState, ProductId: number)->(number);
 	ProductCreditGive: (LS: LockerState, ProductId: number, Amount: number, UserData: any)->();
 	ProductCreditUse: (LS: LockerState, ProductId: number, Amount: number, UserData: any)->(boolean);
@@ -1233,7 +1233,7 @@ local function UseSaveDataCreator(
 	LogPrefix: string
 )
 	local Result = LockerSpec.SaveDataCreator()
-	
+
 	local Types = {
 		{"Version", "number", 1 :: any};
 		{"VersionPatch", "number", 0 :: any};
@@ -1241,7 +1241,7 @@ local function UseSaveDataCreator(
 		{"Purchases", "table", {} :: any};
 		{"Session", "nil", nil :: any}
 	}
-	
+
 	local InvalidKeys = {}
 	for _, Pair in Types do
 		local Key = Pair[1]
@@ -1264,7 +1264,7 @@ local function UseSaveDataCreator(
 		end
 		warn(table.concat(O))
 	end
-	
+
 	return Result
 end
 
@@ -1272,34 +1272,34 @@ local function SessionReset(LS: LockerState, LifecycleReason: LifecycleReason)
 	local SLS = LS.SessionLoadState
 	if SLS then
 		LS.SessionLoadState = nil
-		
+
 		assert(not SLS.Thread)
 		assert(not SLS.Result)
 	end
-	
+
 	local SS = LS.SessionState
 	if SS then
 		LS.SessionState = nil
-		
+
 		local SSS = SS.SessionSaveState
 		if SSS then
 			assert(not SSS.Thread)
 			assert(not SSS.Result)
 		end
 	end
-	
+
 	local Changed = LS.LoadStatus ~= "loading"
 	LS.LoadStatus = "loading"
 	LS.LoadMinimumServerVersion = nil
 	LS.ChangeId_Pending = 0
 	LS.ChangeId_PendingForce = 0
 	LS.ChangeId_Saved = 0
-	
+
 	if not LS.SavedConnections then
 		LS.SavedConnections = {}
 	end
 	LS.ProcessedRemoteChanges = {}
-	
+
 	--[[ @DisableAPIs:ReplaceSaveData
 	-- Use default save data before anything has loaded.
 	LS.SaveData = UseSaveDataCreator(LS.LockerSpec, LS.LogPrefix)
@@ -1308,16 +1308,16 @@ local function SessionReset(LS: LockerState, LifecycleReason: LifecycleReason)
 	-- If DisableAPIs is enabled, the save data table should never get replaced
 	-- after it has been created for the first time.
 	if not LS.DisableAPIs or not LS.SaveData then
-		
+
 		-- Use default save data before anything has loaded.
 		LS.SaveData = UseSaveDataCreator(LS.LockerSpec, LS.LogPrefix)
 	end
 	--]]
-	
+
 	if LS.LockerSpec.Lifecycle then
 		LS.LockerSpec.Lifecycle(LS, "replaced", LifecycleReason)
 	end
-	
+
 	-- Trigger all SavedConnections.
 	do
 		local Clone = table.clone(LS.SavedConnections)
@@ -1327,7 +1327,7 @@ local function SessionReset(LS: LockerState, LifecycleReason: LifecycleReason)
 			Module.SC_Trigger(SC, false)
 		end
 	end
-	
+
 	if Changed and
 		LS.LockerSpec.LoadStatusChanged
 	then
@@ -1350,7 +1350,7 @@ end
 
 function Module.LS_MarkShouldSave(LS: LockerState)
 	-- Indicate that data should save on the next autosave. This doesn't have any
-	-- effect on data saving at the moment, as autosaves will always be 
+	-- effect on data saving at the moment, as autosaves will always be
 	-- performed in order to maintain the session lock.
 	LS.ChangeId_Pending += 1
 end
@@ -1364,13 +1364,13 @@ type SavedConnection = {
 	LS: LockerState;
 	ChangeId: number;
 	DebugTraceback: string;
-	
+
 	Saved: boolean;
 	Connected: boolean;
-	
+
 	Callback: (thread | (Saved: boolean, LS: LockerState, UserData: any)->())?;
 	UserData: any?;
-	
+
 	Trigger: (SC: SavedConnection, Saved: boolean)->();
 	Destroy: (SC: SavedConnection)->();
 	Disconnect: (SC: SavedConnection)->();
@@ -1382,36 +1382,36 @@ function Module.SC_Trigger(SC: SavedConnection, Saved: boolean)
 		if Index then
 			table.remove(SC.LS.SavedConnections, Index)
 		end
-		
+
 		SC.Saved = Saved
-		
+
 		local Valid = false
 		if type(SC.Callback) == "function" then
 			Valid = true
-			
+
 		elseif type(SC.Callback) == "thread" then
 			local Status = coroutine.status(SC.Callback)
-			
+
 			if Status == "suspended" then
 				Valid = true
-				
+
 			elseif Status == "dead" then
 				warn(("[LockerState:WhenChangesSaved] SavedConnection.Callback is a dead thread. Did you forget to call SavedConnection:Destroy()/Disconnect()?\n\nOriginal Traceback:\n%s"):format(SC.DebugTraceback))
-				
+
 			elseif Status == "normal" then
 				warn(("[LockerState:WhenChangesSaved] SavedConnection.Callback is an active thread. Did you forget to call SavedConnection:Destroy()/Disconnect()?\n\nOriginal Traceback:\n%s"):format(SC.DebugTraceback))
-				
+
 			elseif Status == "running" then
 				warn(("[LockerState:WhenChangesSaved] SavedConnection.Callback is a running thread. Did you forget to call SavedConnection:Destroy()/Disconnect()? Are you calling SavedConnection:Trigger() in the wrong place?\n\nOriginal Traceback:\n%s\n\nCurrent Traceback:\n%s"):format(SC.DebugTraceback, debug.traceback(nil, 2)))
-				
+
 			else
 				error(("Unknown coroutine status: %s"):format(Status))
 			end
 		end
 		if Valid then
-			-- Thread is deferred so that there is no wasted time repeatedly 
-			-- creating & destroying SavedConnections as a result of the callback 
-			-- executing immediately when the save data is going through a whole 
+			-- Thread is deferred so that there is no wasted time repeatedly
+			-- creating & destroying SavedConnections as a result of the callback
+			-- executing immediately when the save data is going through a whole
 			-- lifecycle in a single frame.
 			task.defer(SC.Callback :: any, SC.Saved, SC.LS, SC.UserData)
 		end
@@ -1427,64 +1427,64 @@ function Module.SC_Destroy(SC: SavedConnection)
 	end
 end
 
--- Call this when you want to know when the current SaveData (identified by the 
--- current LockerState.ChangeId_Pending) has been fully saved to the DataStore. 
--- Don't forget to call MarkShouldSave() or MarkForceSave() when your code 
--- modifies SaveData (and before you call this function) so that this function 
--- will work! You can also call this function without providing a callback, in 
--- which case you will need to poll SavedConnection.Saved and 
+-- Call this when you want to know when the current SaveData (identified by the
+-- current LockerState.ChangeId_Pending) has been fully saved to the DataStore.
+-- Don't forget to call MarkShouldSave() or MarkForceSave() when your code
+-- modifies SaveData (and before you call this function) so that this function
+-- will work! You can also call this function without providing a callback, in
+-- which case you will need to poll SavedConnection.Saved and
 -- SavedConnection.Connected to see when things happen.
 function Module.LS_WhenChangesSaved(
 	LS: LockerState,
-	
-	-- Callback will be called every time something has happened that would 
-	-- affect whether the data is saved or not. You should check ChangeStatus to 
+
+	-- Callback will be called every time something has happened that would
+	-- affect whether the data is saved or not. You should check ChangeStatus to
 	-- see what happened, and respond appropriately.
 	Callback: (thread | (Saved: boolean, LS: LockerState, UserData: any)->())?,
 	UserData: any?
-	
+
 ): SavedConnection
-	
+
 	local SC = {} :: SavedConnection
-	
+
 	SC.LS = LS
 	SC.ChangeId = LS.ChangeId_Pending
 	SC.DebugTraceback = debug.traceback(nil, 2)
-	
+
 	SC.Callback = Callback
 	SC.UserData = UserData
-	
+
 	-- Callback is deferred so that calling code does not break if the
 	-- callback is executed immediately (e.g. before cleanup code has been
 	-- set up). This works even if Callback == coroutine.running()!
-	
+
 	if LS.IsRemoved then
 		SC.Saved = false
 		SC.Connected = false
-		
+
 		if SC.Callback then
 			task.defer(SC.Callback, SC.Saved, SC.LS, SC.UserData)
 		end
-		
+
 	elseif LS.ChangeId_Pending <= LS.ChangeId_Saved then
 		SC.Saved = true
 		SC.Connected = false
-		
+
 		if SC.Callback then
 			task.defer(SC.Callback, SC.Saved, SC.LS, SC.UserData)
 		end
-		
+
 	else
 		SC.Saved = false
 		SC.Connected = true
-		
+
 		LS.SavedConnections[#LS.SavedConnections+1] = SC
 	end
-	
+
 	SC.Trigger = Module.SC_Trigger
 	SC.Destroy = Module.SC_Destroy
 	SC.Disconnect = Module.SC_Destroy
-	
+
 	return SC
 end
 
@@ -1551,7 +1551,7 @@ function Module.LS_ProductCreditUse(
 	Amount: number,
 	UserData: any
 ): boolean
-	
+
 	local UsedCredit = false
 	local ProductCredit = LS.SaveData.ProductCredit
 	if ProductCredit then
@@ -1588,13 +1588,13 @@ function Module.LockerCreate(
 	local LS = {} :: LockerState
 	LS.AssociatedUserIds = AssociatedUserIds
 	LS.LockerSpec = LockerSpec
-	LS.DataStoreKey = DataStoreKey 
+	LS.DataStoreKey = DataStoreKey
 	LS.LogPrefix = LogPrefix or ("[SessionLocker]["..DataStoreKey.."]")
 	LS.DisableAPIs = DisableAPIs
 	LS.InUse = {}
 	LS.IsRemoved = false
 	SessionReset(LS, "r_released")
-	
+
 	LS.SessionUpdate = Module.LS_SessionUpdate
 	LS.MarkShouldAcquire = Module.LS_MarkShouldAcquire
 	LS.MarkShouldRelease = Module.LS_MarkShouldRelease
@@ -1602,11 +1602,11 @@ function Module.LockerCreate(
 	LS.MarkForceSave = Module.LS_MarkForceSave
 	LS.WhenChangesSaved = Module.LS_WhenChangesSaved
 	LS.YieldUntilChangesSaved = Module.LS_YieldUntilChangesSaved
-	
+
 	LS.ProductCreditQuery = Module.LS_ProductCreditQuery
 	LS.ProductCreditGive = Module.LS_ProductCreditGive
 	LS.ProductCreditUse = Module.LS_ProductCreditUse
-	
+
 	return LS
 end
 
@@ -1630,13 +1630,13 @@ end
 --
 
 local function ProcessRemoteChanges(LS: LockerState): boolean
-	
+
 	local DidChangeSomething = false
 	local SD = LS.SaveData
-	
+
 	local ProcessFunction = LS.LockerSpec.ProcessRemoteChange
 	if ProcessFunction and SD.RemoteChanges then
-		
+
 		local RemainingRCs = {}
 		for _, RC in SD.RemoteChanges do
 			local Processed = ProcessFunction(SD, RC)
@@ -1650,11 +1650,11 @@ local function ProcessRemoteChanges(LS: LockerState): boolean
 		table.clear(SD.RemoteChanges)
 		table.move(RemainingRCs, 1, #RemainingRCs, 1, SD.RemoteChanges)
 	end
-	
+
 	if DidChangeSomething then
 		Module.LS_MarkShouldSave(LS)
 	end
-		
+
 	return DidChangeSomething
 end
 
@@ -1662,28 +1662,28 @@ end
 local function DoMigration(
 	LogPrefix: string,
 	Data: {Version: number, VersionPatch: number},
-	
+
 	LogDataIdentifier: string,
 	ServerVersion: number,
 	Migrators: {[number]: SaveDataMigrator},
 	Patchers: {[number]: SaveDataPatcher},
 	VerboseLogs: boolean
-	
+
 ): (boolean, number?)
-	
+
 	local Success = true
 	local MinimumServerVersion: number?
-	
+
 	local OriginalVersion = Data.Version
 	local OriginalVersionPatch = Data.VersionPatch
-	
+
 	if not Data.Version then
 		Data.Version = 0
 	end
 	if not Data.VersionPatch then
 		Data.VersionPatch = 0
 	end
-	
+
 	if (type(Data.Version) ~= "number") or
 		(type(Data.VersionPatch) ~= "number")
 	then
@@ -1697,27 +1697,27 @@ local function DoMigration(
 				type(Data.VersionPatch)))
 		end
 		Success = false
-		
+
 	else
-		
-		-- Execute Patcher first to prevent any fixable problems from propagating 
+
+		-- Execute Patcher first to prevent any fixable problems from propagating
 		-- into later Versions.
 		local Patcher = Patchers[Data.Version]
 		if Patcher then
 			Data.VersionPatch = Patcher(Data, Data.VersionPatch)
 		end
-		
-		-- Runs data through all of the Migrator until its Version matches the 
+
+		-- Runs data through all of the Migrator until its Version matches the
 		-- server's Version.
 		while Data.Version ~= ServerVersion do
 			local Migrator = Migrators[Data.Version]
 			if Migrator then
 				Data.VersionPatch = Migrator(Data)
 				Data.Version += 1
-				
+
 			else
-				-- @TODO This log here may be useful for users of the library to 
-				-- debug problems. Should it be turned into more than just an 
+				-- @TODO This log here may be useful for users of the library to
+				-- debug problems. Should it be turned into more than just an
 				-- internal thing?
 				if VerboseLogs then
 					warn(("%s Invalid %s version (it doesn't have a migrator). Version is '%s_%s', original version is '%s_%s', server version is '%s'."):format(
@@ -1735,7 +1735,7 @@ local function DoMigration(
 			end
 		end
 	end
-	
+
 	if Success and VerboseLogs then
 		print(("%s Migrated %s from version '%s_%s' to version '%s_%s'"):format(
 			LogPrefix,
@@ -1745,18 +1745,18 @@ local function DoMigration(
 			tostring(Data.Version),
 			tostring(Data.VersionPatch)))
 	end
-	
+
 	return Success, MinimumServerVersion
 end
 
--- @UpdateAsyncTransformFunction Luau errors that occur inside an UpdateAsync 
--- transform function will not throw an error on the calling thread. Instead, 
--- the UpdateAsync will succeed, so the error will not be detectable by the 
--- pcall(). Instead, you will need to manually detect such errors by having a 
--- "transform success" variable (or equivalent) that gets set to "true" right 
--- before returning from the transform function. This variable must also be 
--- reset to "false" INSIDE the transform function every time it runs, because 
--- the transform function may be called multiple times for a single call of 
+-- @UpdateAsyncTransformFunction Luau errors that occur inside an UpdateAsync
+-- transform function will not throw an error on the calling thread. Instead,
+-- the UpdateAsync will succeed, so the error will not be detectable by the
+-- pcall(). Instead, you will need to manually detect such errors by having a
+-- "transform success" variable (or equivalent) that gets set to "true" right
+-- before returning from the transform function. This variable must also be
+-- reset to "false" INSIDE the transform function every time it runs, because
+-- the transform function may be called multiple times for a single call of
 -- :UpdateAsync().
 
 local function SLS_Job(
@@ -1764,46 +1764,46 @@ local function SLS_Job(
 	SLS: SessionLoadState
 )
 	local Result = {} :: SLS_Result
-	
+
 	local LSpec = LS.LockerSpec
-	
+
 	if LS.DisableAPIs then
 		--[[ @DisableAPIs:ReplaceSaveData
 		Result.SaveData = UseSaveDataCreator(LockerSpec, LS.LogPrefix)
 		--]]
 		---[[ @DisableAPIs:MaintainSaveData
-		-- Keep the same template save data, so any changes to it don't get 
-		-- replaced (e.g. if the usage code wanted to customize the save data of 
+		-- Keep the same template save data, so any changes to it don't get
+		-- replaced (e.g. if the usage code wanted to customize the save data of
 		-- fake players).
 		Result.SaveData = LS.SaveData
 		--]]
 		Result.SaveData.Session = SessionCreate()
 		Result.LoadStatus = "loaded"
-		
+
 	else
-		
+
 		-- See @UpdateAsyncTransformFunction
 		local TransformedResult: SLS_Result? = nil
 
 		local function TransformFunction(
 			RemoteSD: SaveData?
 		): (SaveData?, {number}?)
-			
+
 			TransformedResult = nil
-			
+
 			local NewResult = {} :: SLS_Result
-			
+
 			if not RemoteSD then
 				NewResult.SaveData = UseSaveDataCreator(LSpec, LS.LogPrefix)
 				NewResult.SaveData.Session = SessionCreate()
 				NewResult.LoadStatus = "loaded"
-				
+
 			else
 				if (RemoteSD.Session) and
 					(not SessionExpired(RemoteSD.Session, LSpec))
 				then
 					NewResult.LoadStatus = "session_is_locked"
-					
+
 				else
 					local MigrateSuccess, MinimumServerVersion = DoMigration(
 						LS.LogPrefix,
@@ -1814,11 +1814,11 @@ local function SLS_Job(
 						LSpec.SaveDataPatchers,
 						Module.QueryConfig(
 							LSpec.VerboseLogs, Module.Default_VerboseLogs))
-					
+
 					if not MigrateSuccess then
 						NewResult.LoadStatus = "invalid_version"
 						NewResult.MinimumServerVersion = MinimumServerVersion
-						
+
 					else
 						NewResult.SaveData = RemoteSD
 						NewResult.SaveData.Session = SessionCreate()
@@ -1826,46 +1826,46 @@ local function SLS_Job(
 					end
 				end
 			end
-			
+
 			TransformedResult = NewResult
-			
+
 			if (NewResult.LoadStatus == "loaded") and
 				(not Module.QueryConfig(
 					LSpec.ReadOnlyDataStores, Module.Default_ReadOnlyDataStores))
 			then
-				-- Note: If saving is disabled then the code making the request cannot 
-				-- rely on the returned SaveData having particular values set by the 
+				-- Note: If saving is disabled then the code making the request cannot
+				-- rely on the returned SaveData having particular values set by the
 				-- request (e.g. the session value, or migrated data).
 				return NewResult.SaveData, LS.AssociatedUserIds
 			else
 				return nil
 			end
 		end
-		
+
 		local RequestSuccess, RequestMessage = pcall(function()
 			Result.SaveData = LSpec.DataStore:UpdateAsync(
 				LS.DataStoreKey,
 				TransformFunction)
 		end)
-		
+
 		-- If request failed then we just do nothing except report the error.
 		if not RequestSuccess then
 			Result.LoadStatus = "data_store_request_fail"
-			
+
 			if LSpec.ReportDataStoreError then
 				LSpec.ReportDataStoreError(
 					LS, "UpdateAsync_Load", RequestMessage)
 			end
-		
+
 		elseif not TransformedResult then
 			Result.LoadStatus = "data_store_request_fail"
-		
+
 		else
 			Result.LoadStatus = TransformedResult.LoadStatus
 			Result.MinimumServerVersion = TransformedResult.MinimumServerVersion
-			
-			-- If saving is not enabled (i.e. the UpdateAsync transform function 
-			-- returned nil, cancelling the update) then the data won't have been 
+
+			-- If saving is not enabled (i.e. the UpdateAsync transform function
+			-- returned nil, cancelling the update) then the data won't have been
 			-- returned by UpdateAsync, so we need to manually set it here.
 			if (TransformedResult.LoadStatus == "loaded") and
 				(Module.QueryConfig(
@@ -1874,9 +1874,9 @@ local function SLS_Job(
 				Result.SaveData = TransformedResult.SaveData
 			end
 		end
-		
+
 	end
-	
+
 	SLS.Result = Result
 	SLS.Thread = nil
 end
@@ -1887,9 +1887,9 @@ local function PerformSessionLoad(
 	LoadNewSession: boolean
 )
 	local LSpec = LS.LockerSpec
-	
+
 	while true do
-		local SLS = LS.SessionLoadState :: SessionLoadState 
+		local SLS = LS.SessionLoadState :: SessionLoadState
 		if not SLS then
 			if not LoadNewSession then
 				break
@@ -1899,33 +1899,33 @@ local function PerformSessionLoad(
 				}
 				LS.SessionLoadState = SLS
 			end
-		
+
 		elseif SLS.Thread then
 			break
-			
+
 		elseif not SLS.Result then
 			if not LoadNewSession then
 				LS.SessionLoadState = nil
 				break
-				
+
 			elseif HeartbeatNow < SLS.NextAttemptAt then
 				break
-				
+
 			else
 				local Thread = coroutine.create(SLS_Job)
 				SLS.Thread = Thread
 				task.spawn(Thread, LS, SLS)
 			end
-		
+
 		else
 			local Result = SLS.Result
 			SLS.Result = nil
 			SLS.NextAttemptAt = -math.huge
-			
+
 			local Changed = LS.LoadStatus ~= Result.LoadStatus
 			LS.LoadStatus = Result.LoadStatus
-			
-			-- If the load failed due to an invalid version, we don't attempt any 
+
+			-- If the load failed due to an invalid version, we don't attempt any
 			-- retries, we just forget about it.
 			if Result.LoadStatus == "invalid_version" then
 				SLS.NextAttemptAt = math.huge
@@ -1935,8 +1935,8 @@ local function PerformSessionLoad(
 				then
 					LSpec.LoadStatusChanged(LS)
 				end
-				
-			-- If the load failed for a different reason then we just keep 
+
+			-- If the load failed for a different reason then we just keep
 			-- retrying.
 			elseif Result.LoadStatus ~= "loaded" then
 				SLS.NextAttemptAt = HeartbeatNow + Module.QueryConfig(
@@ -1946,42 +1946,42 @@ local function PerformSessionLoad(
 				then
 					LSpec.LoadStatusChanged(LS)
 				end
-			
+
 			-- Otherwise if the load succeeded, we can be happy.
 			else
 				local SD = Result.SaveData
 				assert(SD)
 				assert(SD.Session)
-				
+
 				local SS: SessionState = {
 					Session = SD.Session;
 					AutosaveAt = HeartbeatNow + Module.QueryConfig(
 						LSpec.MaintainSessionPeriod, Module.Default_MaintainSessionPeriod);
 				}
 				LS.SessionState = SS
-				
+
 				-- Process newly loaded remote changes.
 				ProcessRemoteChanges(LS)
-				
+
 				-- Merge local changes into the new save data table.
 				if LSpec.MergeOfflineSaveDataWithLoadedSaveData then
 					LSpec.MergeOfflineSaveDataWithLoadedSaveData(
 						LS, LS.SaveData, SD)
 				end
-				
+
 				LS.SaveData = SD
 				LS.SessionLoadState = nil
-				
+
 				if LS.LockerSpec.Lifecycle then
 					LS.LockerSpec.Lifecycle(LS, "replaced", "r_loaded")
 				end
-				
+
 				if Changed and
 					LSpec.LoadStatusChanged
 				then
 					LSpec.LoadStatusChanged(LS)
 				end
-				
+
 				break
 			end
 		end
@@ -1994,7 +1994,7 @@ local function SSS_Job(
 	SSS: SessionSaveState
 )
 	local LSpec = LS.LockerSpec
-	
+
 	if LS.DisableAPIs then
 		SSS.Result = {
 			RequestSuccess = true;
@@ -2005,30 +2005,30 @@ local function SSS_Job(
 			ProcessedRemoteChanges = table.clone(LS.ProcessedRemoteChanges);
 		}
 	else
-		
+
 		-- See @UpdateAsyncTransformFunction
 		local TransformSuccess = false
 		local TransformChangeId: number = nil
 		local TransformSessionReleased: boolean = nil
 		local TransformSessionAt: number = nil
 		local TransformProcessedRemoteChanges: {[number]: boolean} = nil
-		
+
 		local function TransformFunction(RemoteSD): (SaveData?, {number}?)
 			TransformSuccess = false
-			
+
 			local ChangeId = LS.ChangeId_Pending
-			
+
 			-- Used to check whether a remote change should be deleted or not.
 			local ProcessedRemoteChanges = table.clone(LS.ProcessedRemoteChanges)
-			
-			-- TransformSD should be suitable to completely overwrite RemoteSD, 
+
+			-- TransformSD should be suitable to completely overwrite RemoteSD,
 			-- except for remote changes which will get moved into TransformSD.
 			local TransformSD = Module.TableDeepCopy(LS.SaveData)
-			
+
 			TransformChangeId = ChangeId
 			TransformSessionReleased = SSS.ShouldReleaseSession
 			TransformProcessedRemoteChanges = ProcessedRemoteChanges
-			
+
 			if (RemoteSD) and (
 					(RemoteSD.Version ~= TransformSD.Version) or
 					(not RemoteSD.Session) or
@@ -2037,9 +2037,9 @@ local function SSS_Job(
 			then
 				warn(("%s Another session has taken a lock on save data.")
 					:format(LS.LogPrefix))
-			
+
 			else
-				
+
 				if TransformSessionReleased then
 					TransformSD.Session = nil
 				else
@@ -2048,7 +2048,7 @@ local function SSS_Job(
 					TransformSessionAt = ClonedSession.UpdatedAt
 					TransformSD.Session = ClonedSession
 				end
-				
+
 				if RemoteSD then
 					local NewRemoteChanges = {}
 					local OldRemoteChanges = RemoteSD.RemoteChanges
@@ -2062,19 +2062,19 @@ local function SSS_Job(
 					TransformSD.RemoteChanges =
 						if NewRemoteChanges[1] then NewRemoteChanges else nil
 				end
-				
+
 				TransformSuccess = true
 			end
-			
+
 			if TransformSuccess then
 				return TransformSD, LS.AssociatedUserIds
 			else
 				return nil
 			end
 		end
-		
+
 		local NewPSD
-		
+
 		local RequestSuccess, RequestMessage = pcall(function()
 			if not Module.QueryConfig(
 					LSpec.ReadOnlyDataStores, Module.Default_ReadOnlyDataStores)
@@ -2091,17 +2091,17 @@ local function SSS_Job(
 				NewPSD = {RemoteChanges = nil}
 			end
 		end)
-		
+
 		-- If request failed then we just do nothing except report the error if
 		-- it's nontrivial.
 		if not RequestSuccess then
-			
+
 			if LSpec.ReportDataStoreError then
 				LSpec.ReportDataStoreError(
 					LS, "UpdateAsync_Save", RequestMessage)
 			end
 		end
-		
+
 		SSS.Result = {
 			RequestSuccess = RequestSuccess;
 			LostSessionLock = not TransformSuccess;
@@ -2123,7 +2123,7 @@ local function PerformSessionSave(
 	ShouldReleaseSession: boolean
 )
 	local LSpec = LS.LockerSpec
-	
+
 	while true do
 		local SSS = SS.SessionSaveState :: SessionSaveState
 		if not SSS then
@@ -2132,69 +2132,69 @@ local function PerformSessionSave(
 			else
 				local SSS: SessionSaveState = {
 					NextAttemptAt = -math.huge;
-					
+
 					-- This value always gets updated when there is an active thread,
-					-- so that threads have no risk of seeing outdated state about 
-					-- whether session should be released or not. (And therefore, 
-					-- updating the value at any other time is pointless since it 
+					-- so that threads have no risk of seeing outdated state about
+					-- whether session should be released or not. (And therefore,
+					-- updating the value at any other time is pointless since it
 					-- will just be overwritten.)
 					ShouldReleaseSession = false;
 				}
 				SS.SessionSaveState = SSS
 			end
-		
+
 		elseif SSS.Thread then
 			SSS.ShouldReleaseSession = ShouldReleaseSession
 			break
-			
+
 		elseif not SSS.Result then
 			if not CanBeginNewSave then
 				SS.SessionSaveState = nil
 				break
-				
+
 			elseif HeartbeatNow < SSS.NextAttemptAt then
 				break
-				
+
 			else
 				SSS.ShouldReleaseSession = ShouldReleaseSession
-				
+
 				local Thread = coroutine.create(SSS_Job)
 				SSS.Thread = Thread
 				task.spawn(Thread, LS, SS, SSS)
 			end
-		
+
 		else
 			local Result = SSS.Result
 			SSS.Result = nil
 			SSS.NextAttemptAt = -math.huge
-			
+
 			if not Result.RequestSuccess then
 				SSS.NextAttemptAt = HeartbeatNow + Module.QueryConfig(
 					LSpec.SessionRetryCooldown, Module.Default_SessionRetryCooldown)
-				
+
 			elseif Result.LostSessionLock then
 				warn(("%s Save data session lock has been lost.")
 					:format(LS.LogPrefix))
-				
+
 				SS.SessionSaveState = nil
 				SessionReset(LS, "r_lost")
-				
+
 				break
-				
+
 			else
 				assert(Result.ChangeId)
-				
-				-- Clear out all the remote changes whose consequences we have 
+
+				-- Clear out all the remote changes whose consequences we have
 				-- succesfully saved.
 				for Key in Result.ProcessedRemoteChanges do
 					LS.ProcessedRemoteChanges[Key] = nil
 				end
-				
-				-- Merge new remote changes we don't know about into our local copy 
+
+				-- Merge new remote changes we don't know about into our local copy
 				-- of the header.
 				local ImportedRemoteChanges = Result.ImportedRemoteChanges
 				if ImportedRemoteChanges then
-					
+
 					local DidAddSomething = false
 					local LocalRemoteChanges = LS.SaveData.RemoteChanges
 					if not LocalRemoteChanges then
@@ -2219,50 +2219,50 @@ local function PerformSessionSave(
 							#LocalRemoteChanges+1, LocalRemoteChanges)
 						DidAddSomething = (AddedRemoteChanges[1] ~= nil)
 					end
-					
+
 					-- Process these newly added remote changes.
 					if DidAddSomething then
 						ProcessRemoteChanges(LS)
 					end
 				end
-				
+
 				-- Update the highest saved ChangeId.
 				LS.ChangeId_Saved = Result.ChangeId
-				
+
 				-- Trigger all SavedConnections.
 				do
 					local Clone = table.clone(LS.SavedConnections)
 					for Index = #Clone, 1, -1 do
 						local SC = Clone[Index]
-						
+
 						assert(SC.ChangeId <= LS.ChangeId_Pending)
 						if SC.ChangeId <= LS.ChangeId_Saved then
-							
+
 							Module.SC_Trigger(SC, true)
 						end
 					end
 				end
-				
+
 				if LS.LockerSpec.Lifecycle then
 					LS.LockerSpec.Lifecycle(LS, "saved", "none")
 				end
-				
+
 				if Result.SessionReleased then
 					SessionReset(LS, "r_released")
-					
+
 				else
 					assert(Result.SessionAt)
 					SS.Session.UpdatedAt = Result.SessionAt
 					SS.AutosaveAt = HeartbeatNow + Module.QueryConfig(
 						LSpec.MaintainSessionPeriod, Module.Default_MaintainSessionPeriod)
 				end
-				
+
 				SS.SessionSaveState = nil
 				break
 			end
 		end
 	end
-	
+
 end
 
 --
@@ -2273,35 +2273,35 @@ function Module.LS_SessionUpdate(LS: LockerState, HeartbeatNow: number): boolean
 	if LS.IsRemoved then
 		error("LockerState should never be reused after it has been removed! Make sure it is deleted immediately after LS:SessionUpdate() returns false.")
 	end
-	
+
 	local ShouldRemove = false
-	
-	-- If we don't have session then we are either trying to load data or the 
+
+	-- If we don't have session then we are either trying to load data or the
 	-- player has left the game.
 	local SS = LS.SessionState
 	if not SS then
-		
+
 		-- Since the player is in-game, kick off the load job if the player has
-		-- been marked as being ready for save data. 
+		-- been marked as being ready for save data.
 		if next(LS.InUse) then
 			PerformSessionLoad(LS, HeartbeatNow, true)
-		
-		-- Otherwise, we don't have an active session. But we might still have 
-		-- a load job in progress, in which case we need to wait for it to 
+
+		-- Otherwise, we don't have an active session. But we might still have
+		-- a load job in progress, in which case we need to wait for it to
 		-- complete.
 		elseif LS.SessionLoadState then
 			PerformSessionLoad(LS, HeartbeatNow, false)
-		
-		-- If we reach here then we know for sure we don't have an active 
+
+		-- If we reach here then we know for sure we don't have an active
 		-- session so we can just remove everything immediately.
 		else
 			ShouldRemove = true
 			LS.IsRemoved = true
-			
+
 			if LS.LockerSpec.Lifecycle then
 				LS.LockerSpec.Lifecycle(LS, "destroyed", "none")
 			end
-			
+
 			-- Trigger all SavedConnections.
 			do
 				local Clone = table.clone(LS.SavedConnections)
@@ -2312,34 +2312,34 @@ function Module.LS_SessionUpdate(LS: LockerState, HeartbeatNow: number): boolean
 				end
 			end
 		end
-	
-	-- If we get here then the player is still in the game and is playing 
+
+	-- If we get here then the player is still in the game and is playing
 	-- normally.
 	elseif next(LS.InUse) then
 		PerformSessionSave(
 			LS, SS, HeartbeatNow,
 			(HeartbeatNow >= SS.AutosaveAt) or (LS.ChangeId_PendingForce > LS.ChangeId_Saved),
 			false)
-		
-	-- Once the player has left the game, we try to save all changes to their 
+
+	-- Once the player has left the game, we try to save all changes to their
 	-- data.
 	else
 		PerformSessionSave(LS, SS, HeartbeatNow,
 			true, true)
 	end
-	
+
 	return ShouldRemove
 end
 
 --
 -- Product Purchaser
 --
--- This is an API for perfectly handling developer product purchases, providing 
--- facilities to make sure MarketplaceService.ProcessReceipt won't return until 
+-- This is an API for perfectly handling developer product purchases, providing
+-- facilities to make sure MarketplaceService.ProcessReceipt won't return until
 -- the save data has been guaranteed to be processed & saved, and enables products
 -- to be processed multiple times if the product purchase failed to save.
 --
--- This API also makes use of the LockerState's ProductCredit APIs in order to 
+-- This API also makes use of the LockerState's ProductCredit APIs in order to
 -- handle products that fail to be processed for some reason but which can still
 -- be saved.
 
@@ -2362,7 +2362,7 @@ export type PendingProductPurchase = {
 	ProcessFunction: ProductProcessFunction;
 	ReceiptInfo: ReceiptInfo;
 	Thread: thread | PPP_Callback;
-	
+
 	-- Used internally
 	SavedConnection: SavedConnection?;
 }
@@ -2370,10 +2370,10 @@ export type PPP_Callback = (IsPurchaseGranted: boolean)->()
 
 export type ProductPurchaser = {
 	PPPs_ByLS: {[LockerState]: {PendingProductPurchase}};
-	
+
 	Destroy: (PP: ProductPurchaser)->();
 	Update: (PP: ProductPurchaser)->();
-	
+
 	CallWhenProductIsProcessedAndSaved: (
 		PP: ProductPurchaser,
 		LS: LockerState,
@@ -2381,9 +2381,9 @@ export type ProductPurchaser = {
 		ReceiptInfo: ReceiptInfo,
 		Callback: (IsPurchaseGranted: boolean)->()
 	)->();
-	
+
 	-- Call this from the MarketplaceService.ProcessReceipt callback, and use the
-	-- result to decide whether to mark the product as PurchaseGranted (if it 
+	-- result to decide whether to mark the product as PurchaseGranted (if it
 	-- saved) or NotProcessedYet (if it did not save).
 	YieldUntilProductIsProcessedAndSaved: (
 		PP: ProductPurchaser,
@@ -2396,12 +2396,12 @@ export type ProductPurchaser = {
 function Module.ProductPurchaserCreate(): ProductPurchaser
 	local PP = {} :: ProductPurchaser
 	PP.PPPs_ByLS = {}
-	
+
 	PP.Destroy = Module.PP_Destroy
 	PP.Update = Module.PP_Update
 	PP.CallWhenProductIsProcessedAndSaved = Module.PP_CallWhenProductIsProcessedAndSaved
 	PP.YieldUntilProductIsProcessedAndSaved = Module.PP_YieldUntilProductIsProcessedAndSaved
-	
+
 	return PP
 end
 function Module.PP_Destroy(PP: ProductPurchaser)
@@ -2447,57 +2447,57 @@ end
 function Module.PP_Update(PP: ProductPurchaser)
 	local Threads_True = {} :: {thread | PPP_Callback}
 	local Threads_False = {} :: {thread | PPP_Callback}
-	
+
 	for LS, PPPs in PP.PPPs_ByLS do
 		for PPPIndex = #PPPs, 1, -1 do
 			local PPP = PPPs[PPPIndex]
-			
+
 			while true do
-				
+
 				local SC = PPP.SavedConnection
 				if SC then
-					
+
 					-- We're waiting for a save to happen
 					if SC.Connected then
 						break
-					
+
 					-- The save completed succesfully!
 					elseif SC.Saved then
 						Threads_True[#Threads_True+1] = PPP.Thread
 						table.remove(PPPs, PPPIndex)
 						break
-						
+
 					-- The save didn't happen, so we try again!
 					else
 						PPP.SavedConnection = nil
 					end
-					
+
 				-- If the locker state has been removed, we just have to quit
 				-- trying to process the product.
 				elseif LS.IsRemoved then
 					Threads_False[#Threads_False+1] = PPP.Thread
 					table.remove(PPPs, PPPIndex)
 					break
-					
+
 				-- If we are not ready to start processing product purchases yet
 				-- then we just have to wait. We can only process products when
 				-- we are working with real save data.
 				elseif
-					(not LS.SessionState) or 
+					(not LS.SessionState) or
 					(LS.LoadStatus ~= "loaded")
 				then
 					break
-					
+
 				-- We're now ready to attempt to process the product.
 				else
 					local ProductId = PPP.ReceiptInfo.ProductId
 					local PurchaseId = PPP.ReceiptInfo.PurchaseId
 					local SD = LS.SaveData
-					
+
 					local Purchases: {SD_Purchase} = SD.Purchases or {}
 					SD.Purchases = Purchases
-					
-					-- If the product has already been purchased then we just 
+
+					-- If the product has already been purchased then we just
 					-- immediately resume the purchase thread.
 					local AlreadyProcessed = false
 					for _, Purchase in Purchases do
@@ -2513,7 +2513,7 @@ function Module.PP_Update(PP: ProductPurchaser)
 						table.remove(PPPs, PPPIndex)
 						break
 					else
-						
+
 						-- Add the product to purchase history.
 						local Limit = Module.QueryConfig(
 							LS.LockerSpec.PurchaseHistoryLimit,
@@ -2522,26 +2522,26 @@ function Module.PP_Update(PP: ProductPurchaser)
 							table.remove(Purchases, 1)
 						end
 						Purchases[#Purchases+1] = {ProductId, PurchaseId, os.time()}
-						
-						-- Attempt to apply the product. And if product application 
-						-- fails, give the player credit for this product so they can 
+
+						-- Attempt to apply the product. And if product application
+						-- fails, give the player credit for this product so they can
 						-- use it for free sometime.
 						if not PPP.ProcessFunction("apply", LS, ProductId) then
 							Module.LS_ProductCreditGive(LS, ProductId, 1)
 						end
-						
+
 						Module.LS_MarkForceSave(LS)
 						PPP.SavedConnection = Module.LS_WhenChangesSaved(LS)
 					end
 				end
 			end
 		end
-		
+
 		if not PPPs[1] then
 			PP.PPPs_ByLS[LS] = nil
 		end
 	end
-	
+
 	for _, Thread in Threads_True do
 		task.spawn(Thread, true)
 	end
@@ -2555,16 +2555,16 @@ end
 --
 -- This API is defined with the following features in mind:
 --
--- Usage code only needs to define the RemoteChange's "K" field to create a 
--- valid Remote Change, all other fields are customizable. The "A" and "I" 
--- fields are also reserved for internal use and will be added when the Remote 
+-- Usage code only needs to define the RemoteChange's "K" field to create a
+-- valid Remote Change, all other fields are customizable. The "A" and "I"
+-- fields are also reserved for internal use and will be added when the Remote
 -- Change is being sent.
 --
--- It is intended that you use the "K" field to identify remote changes and do 
+-- It is intended that you use the "K" field to identify remote changes and do
 -- all versioning. You should never have a the same "K" field with RemoteChanges
--- that have a different type signature or do something different. You should 
--- never modify a RemoteChange once it has been created, except to fix a bug in 
--- its implementation. If you need to make multiple versions of a RemoteChange, 
+-- that have a different type signature or do something different. You should
+-- never modify a RemoteChange once it has been created, except to fix a bug in
+-- its implementation. If you need to make multiple versions of a RemoteChange,
 -- put something different in the "K" field, like "give_gold_v2".
 --
 -- e.g.
@@ -2574,7 +2574,7 @@ end
 type RemoteChange =
 	RemoteChange_give_gold |
 	RemoteChange_give_playtime
-	
+
 type RemoteChange_give_gold = {
 	K: "give_gold";
 	gold: number;
@@ -2591,20 +2591,20 @@ LSpec = {
 
 	ProcessRemoteChange = function(SD: SaveData, RC: RemoteChange)
 		local Success = false
-		
+
 		if RC.K == "give_gold" then
 			SD.gold += RC.gold
 			Success = true
-			
+
 		elseif RC.K == "give_playtime" then
 			SD.playtime += RC.playtime
 			Success = true
-			
+
 		else
 			-- If we get an unknown RemoteChange then we do nothing. (We keep it in
 			-- the save data.)
 		end
-		
+
 		return Success
 	end;
 
@@ -2625,14 +2625,14 @@ export type RemoteChangeSender = {
 	DisableAPIs: boolean?;
 	RNG: Random;
 	Job_ByDataStoreKey: {[string]: RCS_Job};
-	
+
 	ReportDataStoreError: ((
 		RCS: RemoteChangeSender,
 		DataStoreKey: string,
 		OperationName: string,
 		ErrorMessage: string
 	)->())?;
-	
+
 	Destroy: (RCS: RemoteChangeSender)->();
 	Update: (RCS: RemoteChangeSender, HeartbeatNow: number)->();
 	IsSending: (RCS: RemoteChangeSender)->(boolean);
@@ -2641,7 +2641,7 @@ export type RemoteChangeSender = {
 export type RCS_Job = {
 	DataStoreKey: string;
 	PendingRCs: {SD_RemoteChange};
-	
+
 	NextAttemptAt: number;
 	Thread: thread?;
 	Result: RCS_Job_Result?;
@@ -2658,17 +2658,17 @@ Module.Default_RemoteChangeSender_ReportDataStoreError = function(
 	ErrorMessage: string
 )
 	local Message = " ReportDataStoreError:\n"..tostring(ErrorMessage)
-	
+
 	-- If verbose logs are enabled, we give the error message with full details.
 	local LSpec: LockerSpec = RCS.LockerSpec
 	if Module.QueryConfig(LSpec.VerboseLogs, Module.Default_VerboseLogs) then
 		local LogPrefix: string = RCS.LogPrefix
 		warn(RCS.LogPrefix..Message)
-		
+
 	-- Otherwise, we filter out all identifying information and just give the
 	-- generic message, if it isn't a known backend error.
 	elseif Module.GetRequestErrorKind(ErrorMessage) ~= "backend" then
-		
+
 		local Filters = {}
 		Filters[#Filters+1] = {DataStoreKey, "{datastorekey}"}
 		warn("[SessionLocker]"..Module.GsubFilter(Message, Filters))
@@ -2681,7 +2681,7 @@ function Module.RemoteChangeSenderCreate(
 	LogPrefix: string?, -- The prefix used when outputting logs.
 	DisableAPIs: boolean? -- Disable all DataStore & save/load behavior.
 ): RemoteChangeSender
-	
+
 	local RCS = {} :: RemoteChangeSender
 	RCS.LockerSpec = LockerSpec
 	RCS.LogPrefix = LogPrefix or ("[SessionLocker:RemoteChangeSender]")
@@ -2689,11 +2689,11 @@ function Module.RemoteChangeSenderCreate(
 	RCS.CreateIfMissing = CreateIfMissing
 	RCS.RNG = Random.new()
 	RCS.Job_ByDataStoreKey = {}
-	
+
 	RCS.IsSending = Module.RCS_IsSending
 	RCS.Send = Module.RCS_Send
 	RCS.Update = Module.RCS_Update
-	
+
 	return RCS
 end
 
@@ -2710,7 +2710,7 @@ function Module.RCS_Send(
 		RC_I.A = os.time()
 		-- The RemoteChange.I field will be set in the transform function.
 	end
-	
+
 	local Job = RCS.Job_ByDataStoreKey[DataStoreKey]
 	if Job then
 		table.move(
@@ -2730,44 +2730,44 @@ end
 
 local function RCS_Job_Function(RCS: RemoteChangeSender, Job: RCS_Job)
 	local Result = {} :: RCS_Job_Result
-	
+
 	local LSpec = RCS.LockerSpec
-	
+
 	if RCS.DisableAPIs then
 		Result.Success = true
 		Result.SentRCs = table.clone(Job.PendingRCs)
-	
+
 	else
-		
+
 		local SentRCs = {}
-		
+
 		local function TransformFunction(
 			RemoteSD: SaveData?, RemoteKeyInfo: DataStoreKeyInfo
 		): (SaveData?, {number}?)
-			
+
 			local MadeChange = false
-			
+
 			SentRCs = {}
-			
+
 			if not RemoteSD and RCS.CreateIfMissing then
 				RemoteSD = UseSaveDataCreator(LSpec, RCS.LogPrefix)
 				MadeChange = true
 			end
-			
+
 			if RemoteSD then
-				
+
 				local RemoteChanges: {SD_RemoteChange} = RemoteSD.RemoteChanges or {}
 				RemoteSD.RemoteChanges = RemoteChanges
-				
+
 				local Used_ByI = {}
 				for _, RC in RemoteChanges do
 					Used_ByI[RC.I] = true
 				end
-				
+
 				for _, RC in Job.PendingRCs do
-					
+
 					-- Give this RemoteChange a random unique ID, and keep regenerating the
-					-- ID until no collisions are found (though they are extremely 
+					-- ID until no collisions are found (though they are extremely
 					-- unlikely in first place).
 					do
 						local NewUniqueId: number
@@ -2777,14 +2777,14 @@ local function RCS_Job_Function(RCS: RemoteChangeSender, Job: RCS_Job)
 						end
 						RC.I = NewUniqueId
 					end
-					
+
 					RemoteChanges[#RemoteChanges+1] = RC
 					Used_ByI[RC.I] = true
-					
+
 					MadeChange = true
 				end
 			end
-			
+
 			if MadeChange and
 				(not Module.QueryConfig(
 					LSpec.ReadOnlyDataStores, Module.Default_ReadOnlyDataStores))
@@ -2794,27 +2794,27 @@ local function RCS_Job_Function(RCS: RemoteChangeSender, Job: RCS_Job)
 				return nil, nil
 			end
 		end
-		
+
 		local RequestSuccess, RequestMessage = pcall(function()
 			LSpec.DataStore:UpdateAsync(Job.DataStoreKey, TransformFunction)
 		end)
-		
+
 		-- If request failed then we just do nothing except report the error.
 		if not RequestSuccess then
 			Result.Success = false
 			Result.SentRCs = {}
-			
+
 			if RCS.ReportDataStoreError then
 				RCS.ReportDataStoreError(
 					RCS, Job.DataStoreKey, "UpdateAsync_SendRemoteChanges", RequestMessage)
 			end
-			
+
 		else
 			Result.Success = true
 			Result.SentRCs = SentRCs
 		end
 	end
-	
+
 	Job.Result = Result
 	Job.Thread = nil
 end
@@ -2824,11 +2824,11 @@ function Module.RCS_Update(RCS: RemoteChangeSender, HeartbeatNow: number)
 		while true do
 			if not Job.PendingRCs[1] then
 				RCS.Job_ByDataStoreKey[Job.DataStoreKey] = nil
-				
+
 			elseif Job.Result then
 				local Result = Job.Result
 				Job.NextAttemptAt = HeartbeatNow + 0.5
-				
+
 				if Result.Success then
 					for SentIndex = #Result.SentRCs, 1, -1 do
 						local SentRC = Result.SentRCs[SentIndex]
@@ -2838,15 +2838,15 @@ function Module.RCS_Update(RCS: RemoteChangeSender, HeartbeatNow: number)
 						end
 					end
 				end
-				
+
 			-- Wait for operation to complete.
 			elseif Job.Thread then
 				break
-				
+
 			-- Wait until we can begin the job again.
 			elseif Job.NextAttemptAt > HeartbeatNow then
 				break
-				
+
 			-- Begin the job!
 			else
 				Job.Thread = coroutine.create(RCS_Job_Function)
@@ -2865,7 +2865,7 @@ export type MigratorBuilder = {
 	MaxVersion: number;
 	Migrators: {[number]: SaveDataMigrator};
 	Patchers: {[number]: SaveDataPatcher};
-	
+
 	-- Exposed methods
 	AddMigratorFrom: (MB: MigratorBuilder, From: number, Migrator: SaveDataMigrator, Patcher: SaveDataPatcher?)->();
 	AddPatcherFor: (MB: MigratorBuilder, For: number, Patcher: SaveDataPatcher)->();
@@ -2877,7 +2877,7 @@ function Module.MigratorBuilderCreate(): MigratorBuilder
 		MaxVersion = -math.huge;
 		Migrators = {};
 		Patchers = {};
-		
+
 		AddMigratorFrom = Module.MB_AddMigratorFrom;
 		AddPatcherFor = Module.MB_AddPatcherFor;
 		CheckVersion = Module.MB_CheckVersion;
@@ -2950,11 +2950,11 @@ export type EasyStore = {
 	LSpec: LockerSpec;
 	ELSs_ByKey: {[string]: {EasyLockerState}};
 	RCS: RemoteChangeSender;
-	
+
 	--
 	-- Methods
 	--
-	
+
 	StartSession: (
 		ES: EasyStore,
 		DataStoreKey: string,
@@ -2962,7 +2962,7 @@ export type EasyStore = {
 		LogPrefix: string?,
 		DisableAPIs: boolean?
 	)->(EasyProfile);
-	
+
 	StartSessionReusable: (
 		ES: EasyStore,
 		DataStoreKey: string,
@@ -2970,7 +2970,7 @@ export type EasyStore = {
 		LogPrefix: string?,
 		DisableAPIs: boolean?
 	)->(EasyProfile);
-	
+
 	SendRemoteChanges: (
 		ES: EasyStore,
 		DataStoreKey: string,
@@ -2982,20 +2982,20 @@ export type EasyProfile = {
 	--
 	-- Fields
 	--
-	
+
 	ES: EasyStore;
 	ELS: EasyLockerState;
-	
+
 	LoadYieldThreads: {thread};
 	SaveYieldThreads: {{ChangeId: number, Thread: thread}};
-	
+
 	IsActive: boolean;
 	IsLoaded: boolean;
-	
+
 	--
 	-- Signals (deferred)
 	--
-	
+
 	-- Signal relationships (fired in bottom-up order):
 	--
 	-- ProductCreditChanged
@@ -3007,69 +3007,69 @@ export type EasyProfile = {
 	--		|-	Reset
 	--			|-	Released
 	--			|-	Lost
-	
+
 	-- Fires when SaveData is replaced because session lock was unwillingly lost.
 	-- (next signals: Reset, Replaced, Lifecycle)
 	Lost: Signal; -- ()
-	
+
 	-- Fires when saveData is replaced because session lock was willingly released.
 	-- (next signals: Reset, Replaced, Lifecycle)
 	Released: Signal; -- ()
-	
+
 	-- Fires when SaveData is replaced by a default save data table.
 	-- (next signals: Replaced, Lifecycle)
 	Reset: Signal; -- (Reason)
-	
+
 	-- Fires when SaveData is replaced by loaded save data.
 	-- (next signals: Replaced, Lifecycle)
 	Loaded: Signal; -- ()
-	
+
 	-- Fires when SaveData is replaced by a different table.
 	-- (next signals: Lifecycle)
 	Replaced: Signal; -- (Reason)
-	
+
 	-- Fires when SaveData was saved.
 	-- (next signals: Lifecycle)
 	Saved: Signal; -- (Reason)
-	
+
 	-- Fires when SaveData will never be loaded again for this EasyProfile/LockerState.
 	-- (next signals: Lifecycle)
 	Destroyed: Signal;  -- (Reason)
-	
+
 	-- Fires when lifecycle of SaveData updates.
 	Lifecycle: Signal; -- (Status, Reason)
-	
+
 	-- Fires when product credit changes.
 	ProductCreditChanged: Signal; -- (ProductId, ChangeAmount, UserData)
-		
+
 	--
 	-- Methods
 	--
-	
+
 	GetSaveData: (EP: EasyProfile)->(SaveData);
 	YieldUntilLoaded: (EP: EasyProfile)->(EasyProfile?);
 	EndSession: (EP: EasyProfile)->();
-	
+
 	-- Wwrappers of methods in LockerState.
-	
+
 	MarkShouldSave: (EP: EasyProfile)->();
 	MarkForceSave: (EP: EasyProfile)->();
-	
+
 	WhenChangesSaved: (
 		EP: EasyProfile,
-		-- Note this wrapper gives the callback the EasyProfile instead of the 
+		-- Note this wrapper gives the callback the EasyProfile instead of the
 		-- LockerState.
 		Callback: (thread | (Saved: boolean, EP: EasyProfile, UserData: any)->())?,
 		UserData: any?
 	)->(SavedConnection);
 	YieldUntilChangesSaved: (EP: EasyProfile)->(boolean);
-	
+
 	ProductCreditQuery: (EP: EasyProfile, ProductId: number)->(number);
 	ProductCreditGive: (EP: EasyProfile, ProductId: number, Amount: number, UserData: any)->();
 	ProductCreditUse: (EP: EasyProfile, ProductId: number, Amount: number, UserData: any)->(boolean);
-	
+
 	-- Wrappers of methods in ProductPurchaser.
-	
+
 	CallWhenProductIsProcessedAndSaved: (
 		EP: EasyProfile,
 		PF: ProductProcessFunction,
@@ -3088,13 +3088,13 @@ export type EasyLockerState = LockerState & {
 }
 
 local State = (function() return { -- Seal the table
-	
+
 	ServerInitialized = false;
 	ServerClosing = false;
-	
+
 	ES_ByDataStore = {} :: {[DataStore]: EasyStore};
 	PP = Module.ProductPurchaserCreate();
-	
+
 } end)()
 
 local function EasyBindToClose()
@@ -3120,9 +3120,9 @@ end
 local function EasyHeartbeat()
 	debug.profilebegin("SessionLocker_EasyHeartbeat")
 	local HeartbeatNow = os.clock()
-	
+
 	for _, ES in State.ES_ByDataStore do
-		
+
 		if State.ServerClosing then
 			for Key, ELSs in ES.ELSs_ByKey do
 				for _, ELS in ELSs do
@@ -3132,7 +3132,7 @@ local function EasyHeartbeat()
 				end
 			end
 		end
-		
+
 		for Key, ELSs in ES.ELSs_ByKey do
 			local Remove = {}
 			for Index, ELS in ELSs do
@@ -3148,29 +3148,29 @@ local function EasyHeartbeat()
 				ES.ELSs_ByKey[Key] = nil
 			end
 		end
-		
+
 		Module.RCS_Update(ES.RCS, HeartbeatNow)
 	end
-	
+
 	Module.PP_Update(State.PP)
-	
+
 	debug.profileend()
 end
 
 local function EasyLifecycleSingle(EP: EasyProfile, Status: LifecycleStatus, Reason: LifecycleReason)
 	local LS = EP.ELS
-	
+
 	if Status == "replaced" then
-				
+
 		if Reason == "r_loaded" then
 			EP.IsLoaded = true
 			EP.Loaded:Fire()
-			
+
 			for _, Thread in EP.LoadYieldThreads do
 				task.defer(Thread)
 			end
 			table.clear(EP.LoadYieldThreads)
-			
+
 		else
 			EP.IsLoaded = false
 			if Reason == "r_lost" then
@@ -3178,20 +3178,20 @@ local function EasyLifecycleSingle(EP: EasyProfile, Status: LifecycleStatus, Rea
 			elseif Reason == "r_released" then
 				EP.Released:Fire()
 			end
-			
+
 			EP.Reset:Fire(Reason)
 		end
-		
+
 		EP.Replaced:Fire(Reason)
-		
+
 		for _, Group in EP.SaveYieldThreads do
 			task.defer(Group.Thread)
 		end
 		table.clear(EP.SaveYieldThreads)
-		
+
 	elseif Status == "saved" then
 		EP.Saved:Fire(Reason)
-	
+
 		for Index = #EP.SaveYieldThreads, 1, -1 do
 			local Group = EP.SaveYieldThreads[Index]
 			if Group.ChangeId <= LS.ChangeId_Saved then
@@ -3199,21 +3199,21 @@ local function EasyLifecycleSingle(EP: EasyProfile, Status: LifecycleStatus, Rea
 				table.remove(EP.SaveYieldThreads, Index)
 			end
 		end
-		
+
 	elseif Status == "destroyed" then
 		EP.Destroyed:Fire(Reason)
-		
+
 		for _, Thread in EP.LoadYieldThreads do
 			task.defer(Thread)
 		end
 		table.clear(EP.LoadYieldThreads)
-		
+
 		for _, Group in EP.SaveYieldThreads do
 			task.defer(Group.Thread)
 		end
 		table.clear(EP.SaveYieldThreads)
 	end
-	
+
 	EP.Lifecycle:Fire(Status, Reason)
 end
 local function EasyLifecycle(LS, Status: LifecycleStatus, Reason: LifecycleReason)
@@ -3237,45 +3237,45 @@ local function EasyProductCreditChanged(LS, SD, ProductId, ChangeAmount, UserDat
 end
 
 function Module.EasyStoreCreate(
-	
+
 	DataStore: DataStore,
-	
+
 	-- Function that creates your save data table.
 	CreateSaveData: ()->({[any]: any}),
-	
-	-- Strict version of save data. Defaults & starts at 1. You must have a 
-	-- migrator for every preceding version. Unknown versions will prevent 
+
+	-- Strict version of save data. Defaults & starts at 1. You must have a
+	-- migrator for every preceding version. Unknown versions will prevent
 	-- session from being acquired.
 	SaveDataVersion: number?,
-	
-	-- Patch ID / version of a particular Version of SaveData. Useful for 
+
+	-- Patch ID / version of a particular Version of SaveData. Useful for
 	-- recovering from recoverable mistakes in a Migrator (such as typos in field
 	-- names, or forgetting to migrate a field). You can choose what values you
 	-- use for this, but if not provided the default is 0.
 	SaveDataVersionPatch: number?,
-	
+
 	-- Table of functions that perform migration. You can use MigratorBuilder to
 	-- build these. Also see @MigratorDocs.
 	Migrators: {[number]: SaveDataMigrator}?,
 	Patchers: {[number]: SaveDataPatcher}?,
-	
-	-- Remote change processor function (see LockerSpec type's documentation for 
+
+	-- Remote change processor function (see LockerSpec type's documentation for
 	-- more info.)
 	ProcessRemoteChange: ((
 		SD: any,
 		RemoteChange: any
 	)->(boolean))?
-	
+
 ): EasyStore
-	
+
 	if game:GetService("RunService"):IsClient() then
 		error("SessionLocker.EasyStoreCreate() cannot be called on the client.")
 	end
-	
+
 	if State.ES_ByDataStore[DataStore] then
 		warn(debug.traceback("WARNING: SessionLocker.EasyStoreCreate() was called with a DataStore that is already registered to an existing EasyStore. That EasyStore will be returned."))
 	else
-		
+
 		do
 			local Test = CreateSaveData()
 			if Test.Version ~= nil or
@@ -3286,13 +3286,13 @@ function Module.EasyStoreCreate(
 				warn(debug.traceback("WARNING: Provided CreateSaveData() function returned SaveData with one or more of the following SaveData fields: Version, VersionPatch, Purchases, ProductCredit. All of these fields will be overwritten, so you should not define them yourself."))
 			end
 		end
-		
+
 		local SD_Version = SaveDataVersion or 1
 		local SD_VersionPatch = SaveDataVersionPatch or 0
-		
+
 		local LSpec: LockerSpec = {
 			DataStore = DataStore;
-			
+
 			SaveDataVersion = SD_Version;
 			SaveDataMigrators = Migrators or {};
 			SaveDataPatchers = Patchers or {};
@@ -3304,40 +3304,40 @@ function Module.EasyStoreCreate(
 				SaveData.ProductCredit = {}
 				return SaveData
 			end;
-			
+
 			Lifecycle = EasyLifecycle;
 			ProductCreditChanged = EasyProductCreditChanged;
 			ReportDataStoreError = Module.Default_LockerSpec_ReportDataStoreError;
 			ProcessRemoteChange = ProcessRemoteChange;
 		}
-		
+
 		local RCS = Module.RemoteChangeSenderCreate(LSpec, true)
 		RCS.ReportDataStoreError = Module.Default_RemoteChangeSender_ReportDataStoreError
-		
+
 		local ES: EasyStore = {
 			DataStore = DataStore;
 			LSpec = LSpec;
 			ELSs_ByKey = {};
 			RCS = RCS;
-			
+
 			StartSession = Module.ES_StartSession;
 			StartSessionReusable = Module.ES_StartSessionReusable;
 			SendRemoteChanges = Module.ES_SendRemoteChanges;
 		}
 		State.ES_ByDataStore[ES.DataStore] = ES
-		
+
 		if not State.ServerInitialized then
 			game:GetService("RunService").Heartbeat:Connect(EasyHeartbeat)
 			game:BindToClose(EasyBindToClose)
 		end
 	end
-	
+
 	return State.ES_ByDataStore[DataStore]
 end
 
 export type Signal = {
 	Connections: {SignalConnection};
-	
+
 	Connect: (Signal: Signal, Callback: ()->())->(SignalConnection);
 	Fire: (Signal: Signal, ...any)->();
 	Destroy: (Signal: Signal)->();
@@ -3348,14 +3348,14 @@ export type SignalConnection = {
 	Callback: thread | ()->();
 	Once: boolean?;
 	Connected: boolean;
-	
+
 	Disconnect: (Conn: SignalConnection)->();
 	Destroy: (Conn: SignalConnection)->();
 }
 local function SignalConnection_Disconnect(Conn: SignalConnection)
 	if Conn.Connected then
 		Conn.Connected = false
-		
+
 		local Signal = Conn.Signal
 		local Index = table.find(Signal.Connections, Conn)
 		if Index then
@@ -3368,7 +3368,7 @@ local function Signal_Connect(Signal: Signal, Callback: ()->()): SignalConnectio
 		Signal = Signal;
 		Callback = Callback;
 		Connected = true;
-		
+
 		Disconnect = SignalConnection_Disconnect;
 		Destroy = SignalConnection_Disconnect;
 	}
@@ -3381,7 +3381,7 @@ local function Signal_Once(Signal: Signal, Callback: ()->()): SignalConnection
 		Callback = Callback;
 		Once = true;
 		Connected = true;
-		
+
 		Disconnect = SignalConnection_Disconnect;
 		Destroy = SignalConnection_Disconnect;
 	}
@@ -3394,7 +3394,7 @@ local function Signal_Wait(Signal: Signal)
 		Callback = coroutine.running();
 		Once = true;
 		Connected = true;
-		
+
 		Disconnect = SignalConnection_Disconnect;
 		Destroy = SignalConnection_Disconnect;
 	}
@@ -3424,7 +3424,7 @@ end
 local function Signal_Create(): Signal
 	local Signal: Signal = {
 		Connections = {};
-		
+
 		Connect = Signal_Connect;
 		Once = Signal_Once;
 		Wait = Signal_Wait;
@@ -3434,7 +3434,7 @@ local function Signal_Create(): Signal
 	return Signal
 end
 
--- You can override this with something else if you want to use a custom signal 
+-- You can override this with something else if you want to use a custom signal
 -- class.
 Module.SignalCreate = Signal_Create
 
@@ -3443,7 +3443,7 @@ local function EP_Init(EP: EasyProfile)
 	EP.IsLoaded = false
 	EP.LoadYieldThreads = {}
 	EP.SaveYieldThreads = {}
-	
+
 	EP.ProductCreditChanged = Module.SignalCreate()
 	EP.Lifecycle = Module.SignalCreate()
 	EP.Destroyed = Module.SignalCreate()
@@ -3453,20 +3453,20 @@ local function EP_Init(EP: EasyProfile)
 	EP.Reset = Module.SignalCreate()
 	EP.Released = Module.SignalCreate()
 	EP.Lost = Module.SignalCreate()
-	
+
 	EP.GetSaveData = Module.EP_GetSaveData
 	EP.YieldUntilLoaded = Module.EP_YieldUntilLoaded
 	EP.EndSession = Module.EP_EndSession
-	
+
 	EP.MarkForceSave = Module.EP_MarkForceSave
 	EP.MarkShouldSave = Module.EP_MarkShouldSave
 	EP.WhenChangesSaved = Module.EP_WhenChangesSaved
 	EP.YieldUntilChangesSaved = Module.EP_YieldUntilChangesSaved
-	
+
 	EP.ProductCreditQuery = Module.EP_ProductCreditQuery
 	EP.ProductCreditGive = Module.EP_ProductCreditGive
 	EP.ProductCreditUse = Module.EP_ProductCreditUse
-	
+
 	EP.CallWhenProductIsProcessedAndSaved = Module.EP_CallWhenProductIsProcessedAndSaved
 	EP.YieldUntilProductIsProcessedAndSaved = Module.EP_YieldUntilProductIsProcessedAndSaved
 end
@@ -3484,36 +3484,36 @@ function Module.ES_StartSession(
 		AssociatedUserIds or {},
 		LogPrefix,
 		DisableAPIs) :: EasyLockerState
-	
+
 	local Array = ES.ELSs_ByKey[DataStoreKey]
 	if Array then
 		Array[#Array+1] = ELS
 	else
 		ES.ELSs_ByKey[DataStoreKey] = {ELS}
 	end
-	
+
 	local EP = {} :: EasyProfile
 	EP.ES = ES
 	EP_Init(EP)
-	
+
 	EP.ELS = ELS
 	if not EP.ELS.EPs then
 		EP.ELS.EPs = {}
 	end
 	EP.ELS.EPs[#EP.ELS.EPs+1] = EP
 	Module.LS_MarkShouldAcquire(EP.ELS)
-	
+
 	return EP
 end
 
 -- This function is the same as the above, except if a session is already active
--- for this key then that session's ELS will be taken and reused. Could save 
+-- for this key then that session's ELS will be taken and reused. Could save
 -- some unnecessary DataStore churn in some scenarios.
 function Module.ES_StartSessionReusable(
 	ES: EasyStore,
 	DataStoreKey: string,
-		
-	-- NOTE: These arguments, will only be applied if the session gets started 
+
+	-- NOTE: These arguments, will only be applied if the session gets started
 	-- from scratch. So make sure they will always be the same across sessions.
 	AssociatedUserIds: {number}?,
 	LogPrefix: string?,
@@ -3536,35 +3536,35 @@ function Module.ES_StartSessionReusable(
 		end
 	end
 	if not Found then
-		
+
 		local ELS: EasyLockerState = Module.LockerCreate(
 			ES.LSpec,
 			DataStoreKey,
 			AssociatedUserIds or {},
 			LogPrefix,
 			DisableAPIs) :: EasyLockerState
-		
+
 		local Array = ES.ELSs_ByKey[DataStoreKey]
 		if Array then
 			Array[#Array+1] = ELS
 		else
 			ES.ELSs_ByKey[DataStoreKey] = {ELS}
 		end
-		
+
 		Found = ELS
 	end
-	
+
 	local EP = {} :: EasyProfile
 	EP.ES = ES
 	EP_Init(EP)
-	
+
 	EP.ELS = Found
 	if not EP.ELS.EPs then
 		EP.ELS.EPs = {}
 	end
 	EP.ELS.EPs[#EP.ELS.EPs+1] = EP
 	Module.LS_MarkShouldAcquire(EP.ELS)
-	
+
 	return EP
 end
 
@@ -3592,7 +3592,7 @@ end
 function Module.EP_EndSession(EP: EasyProfile)
 	if EP.IsActive then
 		EP.IsActive = false
-		
+
 		local ELS = EP.ELS
 		local Index = table.find(ELS.EPs, EP)
 		if Index then
@@ -3601,7 +3601,7 @@ function Module.EP_EndSession(EP: EasyProfile)
 		if not ELS.EPs[1] then
 			Module.LS_MarkShouldRelease(ELS)
 		end
-		
+
 		if EP.IsLoaded then
 			EasyLifecycleSingle(EP, "replaced", "r_released")
 		end
@@ -3623,13 +3623,13 @@ function Module.EP_WhenChangesSaved(
 	Callback: (thread | (Saved: boolean, EP: EasyProfile, UserData: any)->())?,
 	UserData: any?
 ): SavedConnection
-	
+
 	local SC = {} :: SavedConnection
 
 	SC.LS = EP.ELS
 	SC.ChangeId = EP.ELS.ChangeId_Pending
 	SC.DebugTraceback = debug.traceback(nil, 2)
-	
+
 	local WrappedCallback: (thread | (Saved: boolean, LS: LockerState, UserData: any)->())? = nil
 	if type(Callback) == "function" then
 		WrappedCallback = function(Saved, LS, ...)
@@ -3638,43 +3638,43 @@ function Module.EP_WhenChangesSaved(
 	elseif type(Callback) == "thread" then
 		WrappedCallback = Callback
 	end
-	
+
 	SC.Callback = WrappedCallback
 	SC.UserData = UserData
-	
+
 	-- Callback is deferred so that calling code does not break if the
 	-- callback is executed immediately (e.g. before cleanup code has been
 	-- set up). This works even if Callback == coroutine.running()!
-	
+
 	local LS = EP.ELS
-	
+
 	if not EP.IsActive or LS.IsRemoved then
 		SC.Saved = false
 		SC.Connected = false
-		
+
 		if SC.Callback then
 			task.defer(SC.Callback, SC.Saved, SC.LS, SC.UserData)
 		end
-		
+
 	elseif LS.ChangeId_Pending <= LS.ChangeId_Saved then
 		SC.Saved = true
 		SC.Connected = false
-		
+
 		if SC.Callback then
 			task.defer(SC.Callback, SC.Saved, SC.LS, SC.UserData)
 		end
-		
+
 	else
 		SC.Saved = false
 		SC.Connected = true
-		
+
 		LS.SavedConnections[#LS.SavedConnections+1] = SC
 	end
-	
+
 	SC.Trigger = Module.SC_Trigger
 	SC.Destroy = Module.SC_Destroy
 	SC.Disconnect = Module.SC_Destroy
-	
+
 	return SC
 end
 
