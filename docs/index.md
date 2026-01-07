@@ -28,9 +28,10 @@ EasyProfile.IsActive: boolean
 EasyProfile.IsLoaded: boolean
 
 EasyProfile.ProductCreditChanged(ProductId, ChangeAmount): Signal
-EasyProfile.Lifecycle(Status, Reason): Signal 
-|-	EasyProfile.Destroyed(Reason): Signal
-|-	EasyProfile.Saved(Reason): Signal
+EasyProfile.Lifecycle(Status, Reason): Signal
+|-  EasyProfile.Finished: Signal
+|-	EasyProfile.Destroyed: Signal
+|-	EasyProfile.Saved: Signal
 |-	EasyProfile.Replaced(Reason): Signal
 	|-	EasyProfile.Loaded
 	|-	EasyProfile.Reset(Reason): Signal
@@ -38,8 +39,9 @@ EasyProfile.Lifecycle(Status, Reason): Signal
 		|-	EasyProfile.Lost: Signal
 
 EasyProfile:GetSaveData(): SaveData
+EasyProfile:WhenLoaded(Callback)
 EasyProfile:YieldUntilLoaded(): (ProfileIfLoaded: EasyProfile?)
-EasyProfile:EndSession()
+EasyProfile:EndSession/Destroy()
 
 (wrappers of LockerState methods)
 EasyProfile:MarkShouldSave()
@@ -58,14 +60,15 @@ EasyProfile:YieldUntilProductIsProcessedAndSaved(
 ```
 
 # Full API
-
 - Create a `LockerSpec`
 - Create a `LockerState` from the `LockerSpec` using `.LockerCreate()`
 - Call `LockerState:MarkShouldAcquire()` to begin a new session
 - End the `LockerState`'s session whenever you want by calling `LockerState:MarkShouldRelease()`
-- On `RunService.Heartbeat`, update all `LockerStates`, deleting/forgetting a `LockerState` when its update function returns true
-- In `game:BindToClose()`, wait for all `LockerStates` to be deleted/forgotten.
-- Create a `ProductPurchaser` for a particular `LockerState` to use when processing product purchases in `MarketplaceService.ProcessReceipt`, and call its `Update` function on Heartbeat.
+- On `RunService.Heartbeat`, update all `LockerStates`.
+	- When the update function returns true, the `LockerState` is safe to be deleted/forgotten by your code (or you can keep it around until you want to delete it later).
+ 	- When deleting the `LockerState`, you must call `LockerState:MarkDeleted()` to clean up any remaining state.
+- In `game:BindToClose()`, wait for all `LockerStates` to be deleted/forgotten by your own code.
+- Create a `ProductPurchaser` for a particular `LockerState` to use when processing product purchases in `MarketplaceService.ProcessReceipt`, and call `ProductPurchaser:Update()` on Heartbeat to update the purchases.
 
 ## LockerSpec
 Configuration table needed by LockerStates & RemoteChangeSenders.
@@ -106,6 +109,10 @@ LockerState.SaveData: SaveData
 type LoadStatus
 LockerState.LoadStatus: LoadStatus
 
+LockerState.IsIdling: boolean
+LockerState.IsDeleted: boolean
+
+LockerState:MarkDeleted()
 LockerState:MarkShouldAcquire()
 LockerState:MarkShouldRelease()
 LockerState:MarkShouldSave()
@@ -130,6 +137,9 @@ SavedConnection:Destroy()/Disconnect()
 ## ProductPurchaser
 Robust developer product handling on LockerStates.
 
+- You should only need one per ProductPurchaser per server, but you can make more if you want.
+- In `game:BindToClose()`, wait for all ProductPurchasers to finish processing purchases by polling `ProductPurchaser:HasIncompletePurchases()`.
+
 ```luau
 .ProductPurchaserCreate(): ProductPurchaser
 
@@ -137,11 +147,16 @@ type ProductOp
 type ProductProcessFunction
 type ReceiptInfo
 
+type PendingProductPurchase (AKA "PPP")
+.DummyPPP_FromReceiptInfo(ReceiptInfo): PendingProductPurchase
+.DummyPPP_FromIds(ProductId, PlayerId): PendingProductPurchase
+
 type ProductPurchaser
 ProductPurchaser:CallWhenProductIsProcessedAndSaved(
 	LockerState, ProcessFunction, ReceiptInfo, Callback)
 ProductPurchaser:YieldUntilProductIsProcessedAndSaved(
 	LockerState, ProcessFunction, ReceiptInfo): (WasSaved: boolean)
+ProductPurchaser:HasIncompletePurchases(): boolean
 ProductPurchaser:Update()
 ProductPurchaser:Destroy()
 ```
