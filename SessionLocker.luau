@@ -6,7 +6,7 @@
 --
 -- Created by Rio Manson-Hay (@EmeraldSlash)
 --
--- Version: 8 (2026-01-07)
+-- Version: 9 (2026-03-12)
 --
 -- Change Log:
 --
@@ -133,17 +133,25 @@
 --
 -- >> Added ProductPurchaser:HasIncompletePurchases() for use in
 -- game:BindToClose().
+--
+-- Version 9:
+--
+-- >> Added LockerState.DataStoreTestData as a testing/debugging helper.
+--
+-- >> Improved behavior of the LockerState.ReadOnlyDataStores config, so that
+-- data writes are simulated locally without affecting the real DataStore
+-- backend. (Instead of simply disabling writes without any local simulation.)
 
 local Module = {}
 
 -- NOTE: This module is safe to be required on both server & client. You can
--- require it on the client to get access to LoadStatus, SaveData or other thing
--- that you may want to replicate.
+-- require it on the client to get access to LoadStatus, SaveData or other
+-- things that you may want to replicate.
 
 -- Luau's legacy type solver does not play nicely with generic packs and will
--- cause lots of false positive errors, so use the @Typecheck:Partial type
--- definition to fix that. Otherwise, if using the new solver you should be able
--- to use @Typecheck:Full.
+-- cause lots of false positive errors, so uncomment the @Typecheck:Partial type
+-- definitions to fix that (and comment the other definitions). Otherwise, if
+-- using the new solver you should be able to uncomment @Typecheck:Full.
 
 --
 -- // API Summary
@@ -444,7 +452,13 @@ export type LockerSpec = {
 	VerboseLogs: boolean?;
 
 	-- If set to true, DataStores will be read from but never modified. Session
-	-- locks pretend to be obtained, but they haven't actually been obtained.
+	-- locks pretend to be obtained, but they haven't actually been obtained in
+	-- the real data store, they will just be cached and simulated locally. If
+	-- LockerSpec.DataStoreData is set, that data will be used for the initial
+	-- load instead of the real remote data. NOTE: Due to the design of the
+	-- DataStore API it is not possible to locally simulate DataStore scopes -
+	-- for this reason, DataStore scopes are not supported, and all keys will be
+	-- treated as if they are in the same scope.
 	ReadOnlyDataStores: boolean?;
 
 	-- Maximum duration save data is allowed to go without saving to maintain the
@@ -462,6 +476,16 @@ export type LockerSpec = {
 	-- purchases are forgotten. Avoid changing this unnecessarily as it will
 	-- affect save data.
 	PurchaseHistoryLimit: number?;
+
+	-- Override for the initial remote data when loading. Useful for testing what
+	-- happens with a particular data table when it is loaded (such as a player's
+	-- old save data to see if it will migrate correctly to a new version). If
+	-- this is set, the table will be treated as the initial remote data, instead
+	-- of using the real remote data. It will have the same effect as
+	-- LockerSpec.ReadOnlyDataStores=true, with the addition that the initial
+	-- load will use this table (then it will get locked, migrated, etc. in a
+	-- local simulation instead of writing to the real DataStores).
+	DataStoreTestData: any?;
 }
 
 -- Function used for checking if a LockerSpec's configuration value is set.
@@ -1731,7 +1755,10 @@ function Module.LockerCreate(
 	DataStoreKey: string, -- The key save data is stored under.
 	AssociatedUserIds: {number}, -- UserIds to associate with the DataStore key.
 	LogPrefix: string?, -- The prefix used when outputting logs.
-	DisableAPIs: boolean? -- Disable all DataStore & save/load behavior.
+
+	-- Disable all DataStore & save/load behavior. No data migration or loading,
+	-- the locker will just be stuck with the default data.
+	DisableAPIs: boolean?
 )
 	local LS = {} :: LockerState
 	LS.AssociatedUserIds = AssociatedUserIds
@@ -1763,8 +1790,11 @@ end
 function Module.LockerCreatePlayer(
 	LockerSpec: LockerSpec,
 	Player: Player,
-	DataStoreKey: string?,
-	LogPrefix: string?,
+	DataStoreKey: string?, -- The key save data is stored under.
+	LogPrefix: string?, -- The prefix used when outputting logs.
+
+	-- Disable all DataStore & save/load behavior. No data migration or loading,
+	-- the locker will just be stuck with the default data.
 	DisableAPIs: boolean?
 )
 	return Module.LockerCreate(
@@ -1899,6 +1929,52 @@ local function DoMigration(
 	return Success, MinimumServerVersion
 end
 
+
+local ReadOnlyDataStoreUpdate
+do
+	type ReadOnlyData = {
+		UserIds: {number};
+		Data: any;
+	}
+	local CachedROD_ByKey_ByDataStore: {[GlobalDataStore]: {[string]: ReadOnlyData}} = {}
+
+	local function MakeDummyDataStoreKeyInfo(UserIds: {number}): DataStoreKeyInfo
+		return {
+			GetUserIds = function()
+				return UserIds
+			end;
+		} :: any
+	end
+
+	ReadOnlyDataStoreUpdate = function(DataStore, Key, TransformFunction, TestData, LogPrefix)
+		warn(("%s Performing read-only update on DataStore \"%s\" for key \"%s\"%s. Reminder: DataStore scopes are not supported. Disable read-only updates when you have finished testing.")
+			:format(tostring(LogPrefix), tostring(DataStore.Name), tostring(Key), if TestData then " with test data" else ""))
+
+		local CachedROD_ByKey = CachedROD_ByKey_ByDataStore[DataStore] or {}
+		local CachedROD = CachedROD_ByKey[Key]
+
+		local ResultData, ResultUserIds = TransformFunction(
+			if CachedROD then CachedROD.Data else TestData,
+			MakeDummyDataStoreKeyInfo(if CachedROD then CachedROD.Data else {}))
+		if ResultData ~= nil then
+
+			CachedROD = CachedROD or {}
+			CachedROD.Data = ResultData
+			CachedROD.UserIds =
+				if ResultUserIds then ResultUserIds
+				elseif CachedROD.UserIds then CachedROD.UserIds
+				else {}
+
+			CachedROD_ByKey[Key] = ResultData
+			CachedROD_ByKey_ByDataStore[DataStore] = CachedROD_ByKey
+		end
+
+		return
+			if CachedROD then CachedROD.Data else nil,
+			if CachedROD then MakeDummyDataStoreKeyInfo(CachedROD.UserIds) else nil
+	end
+end
+
 -- @UpdateAsyncTransformFunction Luau errors that occur inside an UpdateAsync
 -- transform function will not throw an error on the calling thread. Instead,
 -- the UpdateAsync will succeed, so the error will not be detectable by the
@@ -1983,9 +2059,12 @@ local function SLS_Job(
 				(not Module.QueryConfig(
 					LSpec.ReadOnlyDataStores, Module.Default_ReadOnlyDataStores))
 			then
+				-- We shouldn't need to worry about this anymore.
+				--[[
 				-- Note: If saving is disabled then the code making the request cannot
 				-- rely on the returned SaveData having particular values set by the
 				-- request (e.g. the session value, or migrated data).
+				--]]
 				return NewResult.SaveData, LS.AssociatedUserIds
 			else
 				return nil, nil
@@ -1993,9 +2072,18 @@ local function SLS_Job(
 		end
 
 		local RequestSuccess, RequestMessage = pcall(function()
-			Result.SaveData = LSpec.DataStore:UpdateAsync(
-				LS.DataStoreKey,
-				TransformFunction)
+			if LSpec.DataStoreTestData then
+				Result.SaveData = ReadOnlyDataStoreUpdate(
+					LSpec.DataStore,
+					LS.DataStoreKey,
+					TransformFunction,
+					Module.TableDeepCopy(LSpec.DataStoreTestData),
+					LS.LogPrefix)
+			else
+				Result.SaveData = LSpec.DataStore:UpdateAsync(
+					LS.DataStoreKey,
+					TransformFunction)
+			end
 		end)
 
 		-- If request failed then we just do nothing except report the error.
@@ -2014,6 +2102,8 @@ local function SLS_Job(
 			Result.LoadStatus = TransformedResult.LoadStatus
 			Result.MinimumServerVersion = TransformedResult.MinimumServerVersion
 
+			-- We shouldn't need to do this anymore.
+			--[[
 			-- If saving is not enabled (i.e. the UpdateAsync transform function
 			-- returned nil, cancelling the update) then the data won't have been
 			-- returned by UpdateAsync, so we need to manually set it here.
@@ -2023,6 +2113,7 @@ local function SLS_Job(
 			then
 				Result.SaveData = TransformedResult.SaveData
 			end
+			--]]
 		end
 
 	end
@@ -2228,13 +2319,27 @@ local function SSS_Job(
 		local NewPSD
 
 		local RequestSuccess, RequestMessage = pcall(function()
-			if not Module.QueryConfig(
+			if LSpec.DataStoreTestData or
+				Module.QueryConfig(
 					LSpec.ReadOnlyDataStores, Module.Default_ReadOnlyDataStores)
 			then
+				NewPSD = ReadOnlyDataStoreUpdate(
+					LSpec.DataStore,
+					LS.DataStoreKey,
+					TransformFunction,
+					if LSpec.DataStoreTestData then Module.TableDeepCopy(LSpec.DataStoreTestData) else nil,
+					LS.LogPrefix)
+			else
 				NewPSD = LSpec.DataStore:UpdateAsync(
 					LS.DataStoreKey,
 					TransformFunction)
+			end
+			-- We shouldn't need to do this anymore.
+			--[[
 			else
+				-- Since saving isn't enabled, the remote data will not have been
+				-- updated when the session lock was originally taken, so we just
+				-- ignore the remote data and pretend everything saved correctly.
 				TransformSuccess = true
 				TransformChangeId = LS.ChangeId_Pending
 				TransformProcessedRemoteChanges = table.clone(LS.ProcessedRemoteChanges)
@@ -2242,6 +2347,7 @@ local function SSS_Job(
 				TransformSessionAt = if TransformSessionReleased then nil :: any else os.time()
 				NewPSD = {RemoteChanges = nil}
 			end
+			--]]
 		end)
 
 		-- If request failed then we just do nothing except report the error if
@@ -3125,10 +3231,7 @@ local function RCS_Job_Function(RCS: RemoteChangeSender, Job: RCS_Job)
 				end
 			end
 
-			if MadeChange and
-				(not Module.QueryConfig(
-					LSpec.ReadOnlyDataStores, Module.Default_ReadOnlyDataStores))
-			then
+			if MadeChange then
 				return RemoteSD, RemoteKeyInfo:GetUserIds() :: {number}
 			else
 				return nil, nil
@@ -3136,7 +3239,19 @@ local function RCS_Job_Function(RCS: RemoteChangeSender, Job: RCS_Job)
 		end
 
 		local RequestSuccess, RequestMessage = pcall(function()
-			LSpec.DataStore:UpdateAsync(Job.DataStoreKey, TransformFunction)
+			if LSpec.DataStoreTestData or
+				Module.QueryConfig(
+					LSpec.ReadOnlyDataStores, Module.Default_ReadOnlyDataStores)
+			then
+				ReadOnlyDataStoreUpdate(
+					LSpec.DataStore,
+					Job.DataStoreKey,
+					TransformFunction,
+					if LSpec.DataStoreTestData then Module.TableDeepCopy(LSpec.DataStoreTestData) else nil,
+					RCS.LogPrefix)
+			else
+				LSpec.DataStore:UpdateAsync(Job.DataStoreKey, TransformFunction)
+			end
 		end)
 
 		-- If request failed then we just do nothing except report the error.
@@ -3655,7 +3770,11 @@ function Module.EasyStoreCreate<T>(
 	ProcessRemoteChange: ((
 		SD: any,
 		RemoteChange: any
-	)->(boolean))?
+	)->(boolean))?,
+
+	-- Override for the initial remote data when loading (see LockerSpec type's
+	-- documentation for more info).
+	DataStoreTestData: any?
 
 ): EasyStore
 
@@ -3683,6 +3802,7 @@ function Module.EasyStoreCreate<T>(
 
 		local LSpec: LockerSpec = {
 			DataStore = DataStore;
+			DataStoreTestData = DataStoreTestData;
 
 			SaveDataVersion = SD_Version;
 			SaveDataMigrators = Migrators or {};
@@ -3867,6 +3987,7 @@ end
 
 function Module.ES_StartSession(
 	ES: EasyStore,
+	-- See LockerCreate() for documentation of these arguments.
 	DataStoreKey: string,
 	AssociatedUserIds: {number}?,
 	LogPrefix: string?,
@@ -3905,10 +4026,11 @@ end
 -- some unnecessary DataStore churn in some scenarios.
 function Module.ES_StartSessionReusable(
 	ES: EasyStore,
+	-- See LockerCreate() for documentation of these arguments.
 	DataStoreKey: string,
-
-	-- NOTE: These arguments, will only be applied if the session gets started
-	-- from scratch. So make sure they will always be the same across sessions.
+	-- NOTE: The following arguments, will only be applied if the session gets
+	-- started from scratch. So make sure they will always be the same across
+	-- sessions.
 	AssociatedUserIds: {number}?,
 	LogPrefix: string?,
 	DisableAPIs: boolean?
