@@ -2,6 +2,8 @@
 title: "SessionLocker"
 ---
 
+Last updated for: **Version 11**
+
 * Table of Contents
 {:toc}
 
@@ -22,7 +24,7 @@ EasyStore:SendRemoteChanges(DataStoreKey, RemoteChanges)
 ```
 
 ## EasyProfile
-```
+```luau
 type EasyProfile
 EasyProfile.IsActive: boolean
 EasyProfile.IsLoaded: boolean
@@ -42,6 +44,8 @@ EasyProfile:GetSaveData(): SaveData
 EasyProfile:WhenLoaded(Callback)
 EasyProfile:YieldUntilLoaded(): (ProfileIfLoaded: EasyProfile?)
 EasyProfile:EndSession/Destroy()
+EasyProfile:BeforeSave(Callback)
+EasyProfile:BeforeSaveTransform(Callback)
 
 (wrappers of LockerState methods)
 EasyProfile:MarkShouldSave()
@@ -54,9 +58,9 @@ EasyProfile:ProductCreditUse(ProductId, Amount): (DidUse: boolean)
 
 (wrappers of ProductPurchaser methods)
 EasyProfile:CallWhenProductIsProcessedAndSaved(
-	LockerState, ProcessFunction, ReceiptInfo, Callback)
+	LockerState, ProcessFunction, ReceiptInfo, Callback, UserData)
 EasyProfile:YieldUntilProductIsProcessedAndSaved(
-	LockerState, ProcessFunction, ReceiptInfo): (WasSaved: boolean)
+	LockerState, ProcessFunction, ReceiptInfo, UserData): (WasSaved: boolean)
 ```
 
 # Full API
@@ -84,7 +88,7 @@ type SaveDataPatcher
 Global default callbacks & configs may also be defined in LockerSpecs, and the ones in LockerSpecs will
 override the global ones which are listed here:
 
-```
+```luau
 .Default_LockerSpec_ReportDataStoreError()
 .Default_RemoteChangeSender_ReportDataStoreError()
 
@@ -145,17 +149,19 @@ Robust developer product handling on LockerStates.
 
 type ProductOp
 type ProductProcessFunction
+
 type ReceiptInfo
+.DummyReceiptInfo_FromIds(ProductId, PlayerId)
 
 type PendingProductPurchase (AKA "PPP")
-.DummyPPP_FromReceiptInfo(ReceiptInfo): PendingProductPurchase
-.DummyPPP_FromIds(ProductId, PlayerId): PendingProductPurchase
+.DummyPPP_FromReceiptInfo(ProcessFunction ReceiptInfo): PendingProductPurchase
+.DummyPPP_FromIds(ProcessFunction, ProductId, PlayerId): PendingProductPurchase
 
 type ProductPurchaser
 ProductPurchaser:CallWhenProductIsProcessedAndSaved(
-	LockerState, ProcessFunction, ReceiptInfo, Callback)
+	LockerState, ProcessFunction, ReceiptInfo, Callback, UserData)
 ProductPurchaser:YieldUntilProductIsProcessedAndSaved(
-	LockerState, ProcessFunction, ReceiptInfo): (WasSaved: boolean)
+	LockerState, ProcessFunction, ReceiptInfo, UserData): (WasSaved: boolean)
 ProductPurchaser:HasIncompletePurchases(): boolean
 ProductPurchaser:Update()
 ProductPurchaser:Destroy()
@@ -197,7 +203,7 @@ type SD_RemoteChange_Base -- (used when creating remote changes)
 
 ## MigratorBuilder
 
-```
+```luau
 .MigratorBuilderCreate(): MigratorBuilder
 
 type MigratorBuilder
