@@ -6,7 +6,7 @@
 --
 -- Created by Rio Manson-Hay (@EmeraldSlash)
 --
--- Version: 9 (2026-03-12)
+-- Version: 11 (2026-03-18)
 --
 -- Change Log:
 --
@@ -141,6 +141,24 @@
 -- >> Improved behavior of the LockerState.ReadOnlyDataStores config, so that
 -- data writes are simulated locally without affecting the real DataStore
 -- backend. (Instead of simply disabling writes without any local simulation.)
+--
+-- Version 10:
+--
+-- >> Added lifecycle "before_save" and EasyProfile:BeforeSave(), and lifecycle
+-- "before_save_transform" and EasyProfile:BeforeSaveTransform().
+--
+-- Version 11:  (Breaking changes!)
+--
+-- >> Added PPP.UserData field to store user data (context about a purchase e.g.
+-- gifting target, item being purchased).
+--
+-- >> Removed PPP (PendingProductPurchase) argument from ProductProcessFunction
+-- and replaced it with ReceiptInfo and UserData arguments, and made UserData be
+-- the function's second argument (swapping with LS, so LS is now the last
+-- argument). So new function signature is:
+-- --[[
+-- (Op, UserData, ProductId, ReceiptInfo, LS)->(boolean, LockerState?)
+-- --]]
 
 local Module = {}
 
@@ -184,6 +202,8 @@ local Module = {}
 -- EasyProfile:GetSaveData(): SaveData
 -- EasyProfile:YieldUntilLoaded(): (ProfileIfLoaded: EasyProfile?)
 -- EasyProfile:EndSession() / EasyProfile:Destroy()
+-- EasyProfile:BeforeSave(Callback)
+-- EasyProfile:BeforeSaveTransform(Callback)
 -- |
 -- (wrappers of LockerState methods)
 -- EasyProfile:MarkShouldSave()
@@ -196,9 +216,9 @@ local Module = {}
 -- |
 --	(wrappers of ProductPurchaser methods)
 -- EasyProfile:CallWhenProductIsProcessedAndSaved(
---		LockerState, ProcessFunction, ReceiptInfo, Callback)
+--		LockerState, ProcessFunction, ReceiptInfo, Callback, UserData)
 -- EasyProfile:YieldUntilProductIsProcessedAndSaved(
---		LockerState, ProcessFunction, ReceiptInfo): (WasSaved: boolean)
+--		LockerState, ProcessFunction, ReceiptInfo, UserData): (WasSaved: boolean)
 --
 -------------------------------------------------------------------------------
 -- HELPERS
@@ -284,17 +304,19 @@ local Module = {}
 --
 -- type ProductOp
 -- type ProductProcessFunction
+--
 -- type ReceiptInfo
+-- .DummyReceiptInfo_FromIds(ProductId, PlayerId)
 --
 -- type PendingProductPurchase (AKA "PPP")
 -- .DummyPPP_FromReceiptInfo(ProcessFunction, ReceiptInfo)
--- .DummyPPP_FromProductId(ProcessFunction, ProductId, PlayerId)
+-- .DummyPPP_FromIds(ProcessFunction, ProductId, PlayerId)
 --
 -- type ProductPurchaser
 -- ProductPurchaser:CallWhenProductIsProcessedAndSaved(
--- 	LockerState, ProcessFunction, ReceiptInfo, Callback)
+-- 	LockerState, ProcessFunction, ReceiptInfo, Callback, UserData)
 -- ProductPurchaser:YieldUntilProductIsProcessedAndSaved(
--- 	LockerState, ProcessFunction, ReceiptInfo): (WasSaved: boolean)
+-- 	LockerState, ProcessFunction, ReceiptInfo, UserData): (WasSaved: boolean)
 -- ProductPurchaser:Update()
 -- ProductPurchaser:HasIncompletePurchases()
 -- ProductPurchaser:Destroy()
@@ -503,6 +525,16 @@ export type LifecycleStatus =
 	-- ChangeIds will be reset when this happens.
 	| "replaced"
 
+	-- Indicates that SaveData is about to save. Can be used to write changes to
+	-- save data immediately before the DataStore request is made.
+	| "before_save"
+	-- Same as above, but will be called within the DataStore transform function,
+	-- so that the data being saved is always 100% up-to-date with
+	-- game state. (If you are relying on "...ChangesSaved()" methods and/or
+	-- don't already have a mechanism in your own codebase to control lifetime
+	-- then this may be useful.)
+	| "before_save_transform"
+
 	-- Indicates that SaveData was saved successfully.
 	| "saved"
 
@@ -522,6 +554,8 @@ export type LifecycleStatus =
 	| "destroyed"
 
 export type LifecycleReason =
+	-- status = "before_save"
+	-- status = "before_save_transform"
 	-- status = "saved"
 	-- status = "idling"
 	-- status = "deleted"
@@ -1946,19 +1980,25 @@ do
 		} :: any
 	end
 
-	ReadOnlyDataStoreUpdate = function(DataStore, Key, TransformFunction, TestData, LogPrefix)
+	ReadOnlyDataStoreUpdate = function(
+		DataStore: GlobalDataStore,
+		Key: string,
+		TransformFunction: (any?, DataStoreKeyInfo)->(any?, {number}?),
+		TestData: any,
+		LogPrefix: string
+	)
 		warn(("%s Performing read-only update on DataStore \"%s\" for key \"%s\"%s. Reminder: DataStore scopes are not supported. Disable read-only updates when you have finished testing.")
 			:format(tostring(LogPrefix), tostring(DataStore.Name), tostring(Key), if TestData then " with test data" else ""))
 
 		local CachedROD_ByKey = CachedROD_ByKey_ByDataStore[DataStore] or {}
-		local CachedROD = CachedROD_ByKey[Key]
+		local CachedROD: ReadOnlyData = CachedROD_ByKey[Key]
 
 		local ResultData, ResultUserIds = TransformFunction(
 			if CachedROD then CachedROD.Data else TestData,
 			MakeDummyDataStoreKeyInfo(if CachedROD then CachedROD.Data else {}))
 		if ResultData ~= nil then
 
-			CachedROD = CachedROD or {}
+			CachedROD = CachedROD or {} :: ReadOnlyData
 			CachedROD.Data = ResultData
 			CachedROD.UserIds =
 				if ResultUserIds then ResultUserIds
@@ -2073,6 +2113,7 @@ local function SLS_Job(
 
 		local RequestSuccess, RequestMessage = pcall(function()
 			if LSpec.DataStoreTestData then
+				assert(ReadOnlyDataStoreUpdate)
 				Result.SaveData = ReadOnlyDataStoreUpdate(
 					LSpec.DataStore,
 					LS.DataStoreKey,
@@ -2142,7 +2183,12 @@ local function PerformSessionLoad(
 			end
 
 		elseif SLS.Thread then
-			break
+			if coroutine.status(SLS.Thread) == "dead" then
+				SLS.Thread = nil
+				SLS.NextAttemptAt = HeartbeatNow + 10
+			else
+				break
+			end
 
 		elseif not SLS.Result then
 			if not LoadNewSession then
@@ -2237,8 +2283,14 @@ local function SSS_Job(
 	SSS: SessionSaveState
 )
 	local LSpec = LS.LockerSpec
+	if LSpec.Lifecycle then
+		LSpec.Lifecycle(LS, "before_save", "none")
+	end
 
 	if LS.DisableAPIs then
+		if LSpec.Lifecycle then
+			LSpec.Lifecycle(LS, "before_save_transform", "none")
+		end
 		SSS.Result = {
 			RequestSuccess = true;
 			LostSessionLock = false;
@@ -2258,6 +2310,10 @@ local function SSS_Job(
 
 		local function TransformFunction(RemoteSD: SaveData?): (SaveData?, {number}?)
 			TransformSuccess = false
+
+			if LS.LockerSpec.Lifecycle then
+				LS.LockerSpec.Lifecycle(LS, "before_save_transform", "none")
+			end
 
 			local ChangeId = LS.ChangeId_Pending
 
@@ -2323,6 +2379,7 @@ local function SSS_Job(
 				Module.QueryConfig(
 					LSpec.ReadOnlyDataStores, Module.Default_ReadOnlyDataStores)
 			then
+				assert(ReadOnlyDataStoreUpdate)
 				NewPSD = ReadOnlyDataStoreUpdate(
 					LSpec.DataStore,
 					LS.DataStoreKey,
@@ -2402,8 +2459,13 @@ local function PerformSessionSave(
 			end
 
 		elseif SSS.Thread then
-			SSS.ShouldReleaseSession = ShouldReleaseSession
-			break
+			if coroutine.status(SSS.Thread) == "dead" then
+				SSS.Thread = nil
+				SSS.NextAttemptAt = HeartbeatNow + 10
+			else
+				SSS.ShouldReleaseSession = ShouldReleaseSession
+				break
+			end
 
 		elseif not SSS.Result then
 			if not CanBeginNewSave then
@@ -2596,9 +2658,14 @@ export type ReceiptInfo = {
 -- purchase.
 --
 -- If you want to robustly store any userdata about a purchase (for example, the
--- player a gamepass is being gifted to), you are welcome to store that data in
--- the PendingProductPurchase table that gets passed to the function, so that
--- if the function gets called later it will be applied to the correct player.
+-- player a gamepass is being gifted to, or a specific item that is being
+-- purchased, or the player's main record table), then you should obtain that
+-- information and send it along with ProcessFunction as part of the UserData
+-- table. It is also recommended that you do this before calling
+-- MarketplaceService:PromptProductPurchase(), instead of in
+-- MarketplaceService.ProcessReceipt, so that you can have full context from the
+-- beginning (instead of needing to derive information from scratch within
+-- ProcessReceipt).
 --
 export type ProductOp =
 
@@ -2606,7 +2673,8 @@ export type ProductOp =
 	-- be applied, without actually applying it. The function should return true
 	-- if the product is able to be applied, or false otherwise. NOTE: This
 	-- module currently does not ever call this operation, but it is reserved for
-	-- future use and you are welcome to call it in your own code.
+	-- future use, and it is probably a good idea for you to be using it in your
+	-- own code.
 	| "validate"
 
 	-- This operation is used when the caller wants to apply the product. The
@@ -2614,99 +2682,120 @@ export type ProductOp =
 	-- otherwise.
 	--
 	-- The player's save data & session is used to decide when to call this
-	-- function, so it should be able to run at any time and should have minimal
-	-- side effects outside of the player's save data or be designed to handle
-	-- repeated duplicate calls correctly. This function will be called as many
-	-- times as necessary, such as when the purchasing player's LockerState
-	-- releases its existing session then acquires a new session.
+	-- function, so it should be able to run at any time, should have minimal
+	-- side effects outside of the player's save data, and should be designed to
+	-- handle repeated duplicate calls correctly. This function will be called as
+	-- many times as necessary, such as when the purchasing player's LockerState
+	-- releases its existing session then, being reused, acquires a new session.
 	---
 	-- If another LockerState is involved in the application of the product (e.g.
-	-- gifting a gamepass to another player), the function can also return
-	-- return it to prevent the purchase from being accepted until that
+	-- gifting something to another player), the function can also return the
+	-- other LockerState to prevent the purchase from being finalized until that
 	-- LockerState has been saved as well. This functionality is just a helper:
-	-- It should not be used for systems that need to support rollbacks, and it
-	-- works best with direct actions that only affect one player's save data at
-	-- a time (so not trading or inventory->inventory gifting). If you need
-	-- something more than that, you should build your own system on top. If the
-	-- returned LockerState is not in a savable state when the processing
-	-- function is called (it does not have an active session), then it will be
-	-- treated as if the function did not return the extra LockerState at all,
-	-- and a warning will be printed. If the LockerState becomes unavailable
-	-- while the save is being waited on (e.g. an active session was released),
-	-- then the whole product processing pipeline will start again.
+	-- It should not be used for systems that need to support proper rollbacks,
+	-- and it works best with direct actions that only affect one player's save
+	-- data at a time (so not trading, giving items/currency to two players at
+	-- once, or inventory->inventory gifting). If you need proper rollbacks, you
+	-- should build your own system on top of this module. Note that if the
+	-- returned extra LockerState is not in a savable state when the processing
+	-- function is called (e.g. because it does not have an active session), then
+	-- it will be treated as if the function did not return the extra
+	-- LockerState at all, and a warning will be printed (because usage code
+	-- should be checking that itself). If the extra LockerState becomes
+	-- unavailable while the save is being waited on (e.g. an active session was
+	-- released), then the whole product processing pipeline will start again.
 	| "apply"
 
 -- e.g. Good, robust processor function (a "buy money for your friend" product):
 --[[
-local Success = false
-if not PPP.TargetPlayer then
-	PPP.TargetPlayer = PlayerTargetedByPurchase
-end
-local TargetLS = LS_ByPlayer[PPP.TargetPlayer]
-if TargetLS and
-	TargetLS.SessionState and
-	TargetLS.LoadStatus == "loaded"
-then
-	if Op == "apply" then
-		TargetLS.SaveData.Money += 10
+function(Op, UserData)
+	local Success = false
+	local TargetLS = LS_ByPlayer[UserData.GiftingToPlayer]
+	if TargetLS and
+		TargetLS.SessionState and
+		TargetLS.LoadStatus == "loaded"
+	then
+		if Op == "apply" then
+			TargetLS.SaveData.Money += 10
+		end
+		Success = true
 	end
-	Success = true
+	return Success, TargetLS
 end
-return Success, TargetLS
 --]]
 -- e.g. Bad, error prone processor function (a "buy money for yourself and a
 -- friend" product):
 --[[
-local TargetLS = LS_ByPlayer[PlayerTargetedByPurchase]
-TargetLS.SaveData.Money += 10
-PurchaserLS.SaveData.Money += 10
-return true, TargetLS
+function(Op, UserData, _ProductId, _ReceiptInfo, PurchaserLS)
+	local TargetLS = LS_ByPlayer[UserData.GiftingToPlayer]
+	TargetLS.SaveData.Money += 10
+	PurchaserLS.SaveData.Money += 10
+	return true
+end
 --]]
 -- The issues with this example include: 1) not supporting the "validate"
 -- ProductOp, 2) not checking that TargetLS is able to modified and save
 -- properly, 3) making a modification to two player's save data at once (not
--- supported).
+-- supported), 4) not returning the TargetLS to indicate that the product has
+-- a dependency on the other player's data save too.
 
 export type ProductProcessFunction = (
 	Op: ProductOp,
-	LS: LockerState,
+
+	-- This table is guaranteed to exist, so you don't need to check if it's
+	-- non-nil.
+	UserData: PPP_UserData,
+
 	ProductId: number,
-	PPP: PendingProductPurchase
+	ReceiptInfo: ReceiptInfo,
+	LS: LockerState
 )->(boolean, LockerState?)
 
 export type PendingProductPurchase = {
 	ProcessFunction: ProductProcessFunction;
 	ReceiptInfo: ReceiptInfo;
+	UserData: PPP_UserData;
 	Thread: thread | PPP_Callback;
 
 	-- Used internally
 	SavedConnections: {SavedConnection}?;
 }
 export type PPP_Callback = (IsPurchaseGranted: boolean)->()
+export type PPP_UserData = {[any]: any}
 
 function Module.DummyPPP_FromReceiptInfo(
 	ProcessFunction: ProductProcessFunction,
-	ReceiptInfo: ReceiptInfo
+	ReceiptInfo: ReceiptInfo,
+	UserData: PPP_UserData?
 ): PendingProductPurchase
 	local PPP = {} :: PendingProductPurchase
 	PPP.ProcessFunction = ProcessFunction
 	PPP.ReceiptInfo = ReceiptInfo
+	PPP.UserData = UserData or {}
 	return PPP
 end
-function Module.DummyPPP_FromIds(
-	ProcessFunction: ProductProcessFunction,
+function Module.DummyReceiptInfo_FromIds(
 	ProductId: number,
 	PlayerId: number
-): PendingProductPurchase
-	local PPP = {} :: PendingProductPurchase
-	PPP.ProcessFunction = ProcessFunction
-	PPP.ReceiptInfo = {
+)
+	return {
 		ProductId = ProductId;
 		PlayerId = PlayerId;
 		PurchaseId = "";
 		CurrencySpent = 0;
 		PlaceIdWherePurchased = game.PlaceId;
 	}
+end
+function Module.DummyPPP_FromIds(
+	ProcessFunction: ProductProcessFunction,
+	ProductId: number,
+	PlayerId: number,
+	UserData: PPP_UserData?
+): PendingProductPurchase
+	local PPP = {} :: PendingProductPurchase
+	PPP.ProcessFunction = ProcessFunction
+	PPP.ReceiptInfo = Module.DummyReceiptInfo_FromIds(ProductId, PlayerId)
+	PPP.UserData = UserData or {}
 	return PPP
 end
 
@@ -2723,7 +2812,8 @@ export type ProductPurchaser = {
 		LS: LockerState,
 		PF: ProductProcessFunction,
 		ReceiptInfo: ReceiptInfo,
-		Callback: (IsPurchaseGranted: boolean)->()
+		Callback: (IsPurchaseGranted: boolean)->(),
+		UserData: PPP_UserData?
 	)->();
 
 	-- Call this from the MarketplaceService.ProcessReceipt callback, and use the
@@ -2733,7 +2823,8 @@ export type ProductPurchaser = {
 		PP: ProductPurchaser,
 		LS: LockerState,
 		PF: ProductProcessFunction,
-		ReceiptInfo: ReceiptInfo
+		ReceiptInfo: ReceiptInfo,
+		UserData: PPP_UserData?
 	)->(boolean);
 }
 
@@ -2770,7 +2861,8 @@ function Module.PP_CallWhenProductIsProcessedAndSaved(
 	LS: LockerState,
 	PF: ProductProcessFunction,
 	ReceiptInfo: ReceiptInfo,
-	Callback: (IsPurchaseGranted: boolean)->()
+	Callback: (IsPurchaseGranted: boolean)->(),
+	UserData: PPP_UserData?
 )
 	local Array = PP.PPPs_ByLS[LS] or {}
 	PP.PPPs_ByLS[LS] = Array
@@ -2778,13 +2870,15 @@ function Module.PP_CallWhenProductIsProcessedAndSaved(
 		ProcessFunction = PF;
 		ReceiptInfo = ReceiptInfo;
 		Thread = Callback;
+		UserData = UserData or {};
 	}
 end
 function Module.PP_YieldUntilProductIsProcessedAndSaved(
 	PP: ProductPurchaser,
 	LS: LockerState,
 	PF: ProductProcessFunction,
-	ReceiptInfo: ReceiptInfo
+	ReceiptInfo: ReceiptInfo,
+	UserData: PPP_UserData?
 ): boolean
 	local Array = PP.PPPs_ByLS[LS] or {}
 	PP.PPPs_ByLS[LS] = Array
@@ -2792,6 +2886,7 @@ function Module.PP_YieldUntilProductIsProcessedAndSaved(
 		ProcessFunction = PF;
 		ReceiptInfo = ReceiptInfo;
 		Thread = coroutine.running();
+		UserData = UserData or {};
 	}
 	local IsPurchaseGranted = coroutine.yield()
 	return IsPurchaseGranted
@@ -2929,7 +3024,8 @@ function Module.PP_Update(PP: ProductPurchaser)
 						local WaitForLSs: {LockerState} = {LS}
 						local MultiSave = false
 
-						local Applied, ExtraLS = PPP.ProcessFunction("apply", LS, ProductId, PPP)
+						local Applied, ExtraLS = PPP.ProcessFunction(
+							"apply", PPP.UserData, ProductId, PPP.ReceiptInfo, LS)
 						if not Applied then
 							Module.LS_ProductCreditGive(LS, ProductId, 1)
 
@@ -3243,6 +3339,7 @@ local function RCS_Job_Function(RCS: RemoteChangeSender, Job: RCS_Job)
 				Module.QueryConfig(
 					LSpec.ReadOnlyDataStores, Module.Default_ReadOnlyDataStores)
 			then
+				assert(ReadOnlyDataStoreUpdate)
 				ReadOnlyDataStoreUpdate(
 					LSpec.DataStore,
 					Job.DataStoreKey,
@@ -3296,7 +3393,12 @@ function Module.RCS_Update(RCS: RemoteChangeSender, HeartbeatNow: number)
 
 			-- Wait for operation to complete.
 			elseif Job.Thread then
-				break
+				if coroutine.status(Job.Thread) == "dead" then
+					Job.Thread = nil
+					Job.NextAttemptAt = HeartbeatNow + 10
+				else
+					break
+				end
 
 			-- Wait until we can begin the job again.
 			elseif Job.NextAttemptAt > HeartbeatNow then
@@ -3444,6 +3546,9 @@ export type EasyProfile = {
 	LoadYieldThreads: {thread};
 	SaveYieldThreads: {{ChangeId: number, Thread: thread}};
 
+	BeforeSaveCallback: EP_BeforeSaveCallback?;
+	BeforeSaveTransformCallback: EP_BeforeSaveCallback?;
+
 	IsActive: boolean;
 	IsLoaded: boolean;
 
@@ -3527,6 +3632,8 @@ export type EasyProfile = {
 	YieldUntilLoaded: (EP: EasyProfile)->(EasyProfile?);
 	EndSession: (EP: EasyProfile)->();
 	Destroy: (EP: EasyProfile)->();
+	BeforeSave: (EP: EasyProfile, Callback: EP_BeforeSaveCallback?)->(EasyProfile?);
+	BeforeSaveTransform: (EP: EasyProfile, Callback: EP_BeforeSaveCallback?)->(EasyProfile?);
 
 	-- Wwrappers of methods in LockerState.
 
@@ -3563,14 +3670,18 @@ export type EasyProfile = {
 		EP: EasyProfile,
 		PF: ProductProcessFunction,
 		ReceiptInfo: ReceiptInfo,
-		Callback: (IsPurchaseGranted: boolean)->()
+		Callback: (IsPurchaseGranted: boolean)->(),
+		UserData: PPP_UserData?
 	)->();
 	YieldUntilProductIsProcessedAndSaved: (
 		EP: EasyProfile,
 		PF: ProductProcessFunction,
-		ReceiptInfo: ReceiptInfo
+		ReceiptInfo: ReceiptInfo,
+		UserDataa: PPP_UserData?
 	)->(boolean);
 }
+
+export type EP_BeforeSaveCallback = (EP: EasyProfile)->()
 
 export type EasyLockerState = LockerState & {
 	EPs: {EasyProfile};
@@ -3682,6 +3793,16 @@ local function EasyLifecycleSingle(
 			task.defer(Group.Thread)
 		end
 		table.clear(EP.SaveYieldThreads)
+
+	elseif Status == "before_save" then
+		if EP.BeforeSaveCallback then
+			task.spawn(EP.BeforeSaveCallback, EP)
+		end
+
+	elseif Status == "before_save_transform" then
+		if EP.BeforeSaveTransformCallback then
+			task.spawn(EP.BeforeSaveTransformCallback, EP)
+		end
 
 	elseif Status == "saved" then
 		EP.Saved:Fire()
@@ -3971,6 +4092,8 @@ local function EP_Init(EP: EasyProfile)
 	EP.YieldUntilLoaded = Module.EP_YieldUntilLoaded
 	EP.EndSession = Module.EP_EndSession
 	EP.Destroy = Module.EP_Destroy
+	EP.BeforeSave = Module.EP_BeforeSave
+	EP.BeforeSaveTransform = Module.EP_BeforeSaveTransform
 
 	EP.MarkForceSave = Module.EP_MarkForceSave
 	EP.MarkShouldSave = Module.EP_MarkShouldSave
@@ -4141,6 +4264,15 @@ function Module.EP_EndSession(EP: EasyProfile)
 end
 Module.EP_Destroy = Module.EP_EndSession
 
+function Module.EP_BeforeSave(EP: EasyProfile, Callback: EP_BeforeSaveCallback?): EasyProfile
+	EP.BeforeSaveCallback = Callback
+	return EP
+end
+function Module.EP_BeforeSaveTransform(EP: EasyProfile, Callback: EP_BeforeSaveCallback?):EasyProfile
+	EP.BeforeSaveTransformCallback = Callback
+	return EP
+end
+
 -- Note: Prior to acquiring a session lock, save data will never be saved.
 -- So these save functions will have no meaningful consequence.
 function Module.EP_MarkShouldSave(EP: EasyProfile)
@@ -4198,18 +4330,18 @@ function Module.EP_WhenChangesSaved<T..., U...>(
 		if SC.Callback then
 			task.defer(SC.Callback, SC.Saved, SC.LS, ...)
 		end
-		
+
 	else
 		SC.Saved = false
 		SC.Connected = true
-		
+
 		LS.SavedConnections[#LS.SavedConnections+1] = SC
 	end
-	
+
 	SC.Trigger = Module.SC_Trigger
 	SC.Destroy = Module.SC_Destroy
 	SC.Disconnect = Module.SC_Destroy
-	
+
 	return SC
 end
 
@@ -4253,7 +4385,8 @@ function Module.EP_CallWhenProductIsProcessedAndSaved(
 	EP: EasyProfile,
 	PF: ProductProcessFunction,
 	ReceiptInfo: ReceiptInfo,
-	Callback: (IsPurchaseGranted: boolean)->()
+	Callback: (IsPurchaseGranted: boolean)->(),
+	UserData: PPP_UserData?
 )
 	Module.PP_CallWhenProductIsProcessedAndSaved(
 		State.PP, EP.ELS, PF, ReceiptInfo, Callback)
@@ -4262,7 +4395,8 @@ end
 function Module.EP_YieldUntilProductIsProcessedAndSaved(
 	EP: EasyProfile,
 	PF: ProductProcessFunction,
-	ReceiptInfo: ReceiptInfo
+	ReceiptInfo: ReceiptInfo,
+	UserData: PPP_UserData?
 )
 	return Module.PP_YieldUntilProductIsProcessedAndSaved(
 		State.PP, EP.ELS, PF, ReceiptInfo)
