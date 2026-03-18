@@ -3677,7 +3677,7 @@ export type EasyProfile = {
 		EP: EasyProfile,
 		PF: ProductProcessFunction,
 		ReceiptInfo: ReceiptInfo,
-		UserDataa: PPP_UserData?
+		UserData: PPP_UserData?
 	)->(boolean);
 }
 
@@ -4389,7 +4389,7 @@ function Module.EP_CallWhenProductIsProcessedAndSaved(
 	UserData: PPP_UserData?
 )
 	Module.PP_CallWhenProductIsProcessedAndSaved(
-		State.PP, EP.ELS, PF, ReceiptInfo, Callback)
+		State.PP, EP.ELS, PF, ReceiptInfo, Callback, UserData)
 end
 
 function Module.EP_YieldUntilProductIsProcessedAndSaved(
@@ -4399,7 +4399,7 @@ function Module.EP_YieldUntilProductIsProcessedAndSaved(
 	UserData: PPP_UserData?
 )
 	return Module.PP_YieldUntilProductIsProcessedAndSaved(
-		State.PP, EP.ELS, PF, ReceiptInfo)
+		State.PP, EP.ELS, PF, ReceiptInfo, UserData)
 end
 
 return Module
