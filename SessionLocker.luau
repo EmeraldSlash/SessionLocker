@@ -6,7 +6,7 @@
 --
 -- Created by Rio Manson-Hay (@EmeraldSlash)
 --
--- Version: 11 (2026-03-18)
+-- Version: 12 (2026-04-02)
 --
 -- Change Log:
 --
@@ -136,7 +136,7 @@
 --
 -- Version 9:
 --
--- >> Added LockerState.DataStoreTestData as a testing/debugging helper.
+-- >> Added LockerSpec.DataStoreTestData as a testing/debugging helper.
 --
 -- >> Improved behavior of the LockerState.ReadOnlyDataStores config, so that
 -- data writes are simulated locally without affecting the real DataStore
@@ -159,6 +159,11 @@
 -- --[[
 -- (Op, UserData, ProductId, ReceiptInfo, LS)->(boolean, LockerState?)
 -- --]]
+--
+-- Version 12:
+--
+-- >> Fixed LockerSpec.ReadOnlyDataStores throwing errors, and cleaned up the
+-- code so that DataStore read-only/faking behaviour is clearer.
 
 local Module = {}
 
@@ -1963,14 +1968,14 @@ local function DoMigration(
 	return Success, MinimumServerVersion
 end
 
-
+local FakeDataStoreUpdate
 local ReadOnlyDataStoreUpdate
 do
-	type ReadOnlyData = {
+	type FakeData = {
 		UserIds: {number};
 		Data: any;
 	}
-	local CachedROD_ByKey_ByDataStore: {[GlobalDataStore]: {[string]: ReadOnlyData}} = {}
+	local CachedFD_ByKey_ByDataStore: {[GlobalDataStore]: {[string]: FakeData}} = {}
 
 	local function MakeDummyDataStoreKeyInfo(UserIds: {number}): DataStoreKeyInfo
 		return {
@@ -1980,38 +1985,66 @@ do
 		} :: any
 	end
 
+	-- Fakes a backend for DataStore UpdateAsync, given initial data to start
+	-- with (this data can be real data obtained from a DataStore, or it can be
+	-- fake test data, or it doesn't need to be provided at all).
+	FakeDataStoreUpdate = function(
+		DataStore: GlobalDataStore,
+		Key: string,
+		TransformFunction: (any?, DataStoreKeyInfo)->(any?, {number}?),
+		LogPrefix: string,
+		TestData: any?,
+		TestKeyInfo: any?
+	)
+		warn(("%s Performing fake update on DataStore \"%s\" for key \"%s\"%s. Reminder: DataStore scopes are not supported. Stop providing DataStoreTestData (or disable LockerSpec.ReadOnlyDataStores) when you have finished testing.")
+			:format(tostring(LogPrefix), tostring(DataStore.Name), tostring(Key), if TestData then " with test data" else ""))
+
+		local CachedFD_ByKey = CachedFD_ByKey_ByDataStore[DataStore] or {}
+		local CachedFD: FakeData = CachedFD_ByKey[Key]
+
+		local ResultData, ResultUserIds = TransformFunction(
+			if CachedFD then CachedFD.Data else TestData,
+			if CachedFD then MakeDummyDataStoreKeyInfo(CachedFD.UserIds) else TestKeyInfo)
+		if ResultData ~= nil then
+
+			CachedFD = CachedFD or {} :: FakeData
+			CachedFD.Data = ResultData
+			CachedFD.UserIds =
+				if ResultUserIds then ResultUserIds
+				elseif CachedFD.UserIds then CachedFD.UserIds
+				else {}
+
+			CachedFD_ByKey[Key] = ResultData
+			CachedFD_ByKey_ByDataStore[DataStore] = CachedFD_ByKey
+		end
+
+		return
+			if CachedFD then CachedFD.Data else nil,
+			if CachedFD then MakeDummyDataStoreKeyInfo(CachedFD.UserIds) else nil
+	end
+
+	-- Does UpdateAsync, but never writes to the real DataStore, instead writing
+	-- to the fake backend. Uses the facilities provided by FakeDataStoreUpdate.
 	ReadOnlyDataStoreUpdate = function(
 		DataStore: GlobalDataStore,
 		Key: string,
 		TransformFunction: (any?, DataStoreKeyInfo)->(any?, {number}?),
-		TestData: any,
 		LogPrefix: string
 	)
-		warn(("%s Performing read-only update on DataStore \"%s\" for key \"%s\"%s. Reminder: DataStore scopes are not supported. Disable read-only updates when you have finished testing.")
-			:format(tostring(LogPrefix), tostring(DataStore.Name), tostring(Key), if TestData then " with test data" else ""))
+		assert(FakeDataStoreUpdate)
 
-		local CachedROD_ByKey = CachedROD_ByKey_ByDataStore[DataStore] or {}
-		local CachedROD: ReadOnlyData = CachedROD_ByKey[Key]
-
-		local ResultData, ResultUserIds = TransformFunction(
-			if CachedROD then CachedROD.Data else TestData,
-			MakeDummyDataStoreKeyInfo(if CachedROD then CachedROD.Data else {}))
-		if ResultData ~= nil then
-
-			CachedROD = CachedROD or {} :: ReadOnlyData
-			CachedROD.Data = ResultData
-			CachedROD.UserIds =
-				if ResultUserIds then ResultUserIds
-				elseif CachedROD.UserIds then CachedROD.UserIds
-				else {}
-
-			CachedROD_ByKey[Key] = ResultData
-			CachedROD_ByKey_ByDataStore[DataStore] = CachedROD_ByKey
+		if (not CachedFD_ByKey_ByDataStore[DataStore]) or
+			(not CachedFD_ByKey_ByDataStore[DataStore][Key])
+		then
+			local Options = Instance.new("DataStoreGetOptions")
+			Options.UseCache = false
+			local SaveData, KeyInfo = DataStore:GetAsync(Key, Options)
+			return FakeDataStoreUpdate(
+				DataStore, Key, TransformFunction, LogPrefix, SaveData, KeyInfo)
+		else
+			return FakeDataStoreUpdate(
+				DataStore, Key, TransformFunction, LogPrefix)
 		end
-
-		return
-			if CachedROD then CachedROD.Data else nil,
-			if CachedROD then MakeDummyDataStoreKeyInfo(CachedROD.UserIds) else nil
 	end
 end
 
@@ -2050,6 +2083,7 @@ local function SLS_Job(
 
 		-- See @UpdateAsyncTransformFunction
 		local TransformedResult: SLS_Result? = nil
+		local IsReadOnly = Module.QueryConfig(LSpec.ReadOnlyDataStores, Module.Default_ReadOnlyDataStores)
 
 		local function TransformFunction(
 			RemoteSD: SaveData?
@@ -2093,18 +2127,21 @@ local function SLS_Job(
 				end
 			end
 
+			-- This needs to be used since we can't return extra user data from
+			-- UpdateAsync.
 			TransformedResult = NewResult
 
-			if (NewResult.LoadStatus == "loaded") and
-				(not Module.QueryConfig(
-					LSpec.ReadOnlyDataStores, Module.Default_ReadOnlyDataStores))
-			then
-				-- We shouldn't need to worry about this anymore.
-				--[[
-				-- Note: If saving is disabled then the code making the request cannot
-				-- rely on the returned SaveData having particular values set by the
-				-- request (e.g. the session value, or migrated data).
-				--]]
+			-- NOTE: Shouldn't be necessary anymore.
+			--[[
+			-- If using ReadOnlyDataStores then the code making the request cannot
+			-- rely on the returned SaveData having particular values set by the
+			-- request (e.g. the session value, or migrated data). So we need to
+			-- use TransformedResult instead.
+			if (NewResult.LoadStatus == "loaded") and (not IsReadOnly) then
+			--]]
+			---[[
+			if NewResult.LoadStatus == "loaded" then
+			--]]
 				return NewResult.SaveData, LS.AssociatedUserIds
 			else
 				return nil, nil
@@ -2113,13 +2150,22 @@ local function SLS_Job(
 
 		local RequestSuccess, RequestMessage = pcall(function()
 			if LSpec.DataStoreTestData then
+				assert(FakeDataStoreUpdate)
+				Result.SaveData = FakeDataStoreUpdate(
+					LSpec.DataStore,
+					LS.DataStoreKey,
+					TransformFunction,
+					LS.LogPrefix,
+					Module.TableDeepCopy(LSpec.DataStoreTestData))
+
+			elseif IsReadOnly then
 				assert(ReadOnlyDataStoreUpdate)
 				Result.SaveData = ReadOnlyDataStoreUpdate(
 					LSpec.DataStore,
 					LS.DataStoreKey,
 					TransformFunction,
-					Module.TableDeepCopy(LSpec.DataStoreTestData),
 					LS.LogPrefix)
+
 			else
 				Result.SaveData = LSpec.DataStore:UpdateAsync(
 					LS.DataStoreKey,
@@ -2143,9 +2189,8 @@ local function SLS_Job(
 			Result.LoadStatus = TransformedResult.LoadStatus
 			Result.MinimumServerVersion = TransformedResult.MinimumServerVersion
 
-			-- We shouldn't need to do this anymore.
-			--[[
-			-- If saving is not enabled (i.e. the UpdateAsync transform function
+			--[[ NOTE: Shouldn't be necessary anymore.
+			-- If using ReadOnlyDataStores (i.e. the UpdateAsync transform function
 			-- returned nil, cancelling the update) then the data won't have been
 			-- returned by UpdateAsync, so we need to manually set it here.
 			if (TransformedResult.LoadStatus == "loaded") and
@@ -2375,24 +2420,31 @@ local function SSS_Job(
 		local NewPSD
 
 		local RequestSuccess, RequestMessage = pcall(function()
-			if LSpec.DataStoreTestData or
-				Module.QueryConfig(
-					LSpec.ReadOnlyDataStores, Module.Default_ReadOnlyDataStores)
+			if LSpec.DataStoreTestData then
+				assert(FakeDataStoreUpdate)
+				NewPSD = FakeDataStoreUpdate(
+					LSpec.DataStore,
+					LS.DataStoreKey,
+					TransformFunction,
+					LS.LogPrefix,
+					Module.TableDeepCopy(LSpec.DataStoreTestData))
+
+			elseif Module.QueryConfig(
+				LSpec.ReadOnlyDataStores, Module.Default_ReadOnlyDataStores)
 			then
 				assert(ReadOnlyDataStoreUpdate)
 				NewPSD = ReadOnlyDataStoreUpdate(
 					LSpec.DataStore,
 					LS.DataStoreKey,
 					TransformFunction,
-					if LSpec.DataStoreTestData then Module.TableDeepCopy(LSpec.DataStoreTestData) else nil,
 					LS.LogPrefix)
+
 			else
 				NewPSD = LSpec.DataStore:UpdateAsync(
 					LS.DataStoreKey,
 					TransformFunction)
 			end
-			-- We shouldn't need to do this anymore.
-			--[[
+			--[[ NOTE: We shouldn't need to do this anymore.
 			else
 				-- Since saving isn't enabled, the remote data will not have been
 				-- updated when the session lock was originally taken, so we just
@@ -3257,7 +3309,7 @@ function Module.RCS_Send(
 	if Job then
 		table.move(
 			RemoteChanges, 1, #RemoteChanges,
-			#Job.PendingRCs+1, Job.PendingRCs)
+			#Job.PendingRCs+1, Job.PendingRCs :: any) -- silence typechecker error
 	else
 		RCS.Job_ByDataStoreKey[DataStoreKey] = {
 			DataStoreKey = DataStoreKey;
@@ -3335,17 +3387,25 @@ local function RCS_Job_Function(RCS: RemoteChangeSender, Job: RCS_Job)
 		end
 
 		local RequestSuccess, RequestMessage = pcall(function()
-			if LSpec.DataStoreTestData or
-				Module.QueryConfig(
-					LSpec.ReadOnlyDataStores, Module.Default_ReadOnlyDataStores)
+			if LSpec.DataStoreTestData then
+				assert(FakeDataStoreUpdate)
+				FakeDataStoreUpdate(
+					LSpec.DataStore,
+					Job.DataStoreKey,
+					TransformFunction,
+					RCS.LogPrefix,
+					Module.TableDeepCopy(LSpec.DataStoreTestData))
+
+			elseif Module.QueryConfig(
+				LSpec.ReadOnlyDataStores, Module.Default_ReadOnlyDataStores)
 			then
 				assert(ReadOnlyDataStoreUpdate)
 				ReadOnlyDataStoreUpdate(
 					LSpec.DataStore,
 					Job.DataStoreKey,
 					TransformFunction,
-					if LSpec.DataStoreTestData then Module.TableDeepCopy(LSpec.DataStoreTestData) else nil,
 					RCS.LogPrefix)
+
 			else
 				LSpec.DataStore:UpdateAsync(Job.DataStoreKey, TransformFunction)
 			end
@@ -3960,7 +4020,7 @@ function Module.EasyStoreCreate<T>(
 
 		if not State.ServerInitialized then
 			game:GetService("RunService").Heartbeat:Connect(EasyHeartbeat)
-			game:BindToClose(EasyBindToClose)
+			--game:BindToClose(EasyBindToClose)
 		end
 	end
 
