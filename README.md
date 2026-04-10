@@ -1,8 +1,6 @@
 # SessionLocker
 
-This is a library for doing DataStore session locking in Roblox. The system design been used in production code, but this particular codebase has not been battle-tested yet as I have only just just extracted it out into a reusable library for use in an upcoming project.
-
-For reading the code, I recommend a tab width of 3 since that's what I wrote it with (and my Luau formatting style depends on tab width). Unfortunately GitHub does not provide this tab width as a selectable option, but you can get it for a particular file by appending `?ts=3` to the end of the file's URL.
+This is a library for doing DataStore session locking in Roblox.
 
 At the moment, this library provides:
 - DataStore session locking, including session reuse capabilities
@@ -16,16 +14,18 @@ The library intentionally does not provide (see the Design section below for dis
 - Change signals/callbacks/detection for individual fields of save data
 
 Future plans:
-- Make the session locking core cleanly separated from all the extra stuff. Decouple Developer Product stuff, and perhaps even remote changes and data version migration, from the core session locking system.
-- Rethink how the library treats save data - should it be owned by the usage code rather than the library? Need to support compression / serialization use cases.
+- Make the session locking core cleanly separated from all the extra stuff.
+  - Some progress has been made on this, but two things remain: version migration, and handling of what fields are in the save data table. We can make an API to do version migration in the transform function callback, and do version migration outside of it as well. Handling of save data fields is more difficult because it is a tradeoff between convenience and robustness. The more dynamic we are, the less robust it is and the more room for error there is. The less dynamic we are, we either up redundantly storing unnecessary fields in the table which some users might not like, or we make them optional fields which has bad UX for the programmer. I think we will have to go with the dynamic approach, though, that's really the direction this library is heading.
+- Need to provide examples of compression/serialization can be used with the new BeforeSaving() callback.
+- Update the GetRequestErrorKind() function to support all the new error codes provided by roblox docs
+- Make a big upgrade of the library that merges the full and easy APIs. Most of the distinctions are unnecessary, or can achieved using a single type.
+	- Remove LockerSpecs since they are kinda mid, it's probably better to specify full configuration for each player uniquely, with a composable way to reuse configuration tables if desired.
 - Find ways to make typechecking a little more convenient. It's pretty good right now, but there are still two big annoyances which I'd like to resolve:
   - Passing userdata into `LockerSpec` callbacks (e.g. you have a table associated with the `LockerState` that you want to access from within a callback). My current preference is to store userdata inside `LockerState`, but this means I need to fight with the typechecker.
   - Getting `LockerState.SaveData` casted into the actual SaveData type defined by the user with minimal friction (and accessing the save data in the first place might be annoyance for some people if they'd like to store it in more convenient place)
+- Allow other servers to request to take a session lock from another server, or to forcibly take session lock if they really want to.
 - Some better error checking & messages so that the library has good human error UX
-- Figure out how to deal with DataStore request limits.
-- Improve the library structure so it's a bit easier to understand. It's kinda dumb to have separate "full" and "easy" APIs - can they just be merged?
-- Allow other servers to request to take a session lock from another server, or to forcibly take session lock if they really want.
-
+- Figure out if we need to do anything to deal with DataStore request limits?
 
 ## Design
 
