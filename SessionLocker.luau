@@ -6,7 +6,7 @@
 --
 -- Created by Rio Manson-Hay (@EmeraldSlash)
 --
--- Version: 12 (2026-04-02)
+-- Version: 13 (2026-04-10)
 --
 -- Change Log:
 --
@@ -164,6 +164,23 @@
 --
 -- >> Fixed LockerSpec.ReadOnlyDataStores throwing errors, and cleaned up the
 -- code so that DataStore read-only/faking behaviour is clearer.
+--
+-- Version 13:
+--
+-- >> Made LockerState.SaveData always be the same table so that it can be
+-- reliably referenced without any gotchas. If someone cares about maintaining a
+-- reliable copy of save data they should clone it themselves (and deep copy it
+-- if they really care), as the module is designed for mutable save data anyway
+-- and therefore it makes such immutability a feature that will likely break in
+-- subtle ways.
+--
+-- >> Added LockerState.IsSyncing to enable robust save data management when
+-- the user has decided to use an external canonical save data state rather
+-- than LockerState.SaveData.
+--
+-- >> Added LockerState:IsAvailable() as a helper to check that the
+-- LockerState's save data can be modified with a guarantee that it will be
+-- included with the next save.
 
 local Module = {}
 
@@ -215,6 +232,7 @@ local Module = {}
 -- EasyProfile:MarkForceSave()
 -- EasyProfile:YieldUntilChangesSaved(): (WasSaved: boolean)
 -- EasyProfile:WhenChangesSaved(Callback): SavedConnection
+-- EasyProfile:IsAvailable(): boolean
 -- EasyProfile:ProductCreditQuery(ProductId): (Credit: number)
 -- EasyProfile:ProductCreditGive(ProductId, Amount)
 -- EasyProfile:ProductCreditUse(ProductId, Amount): (DidUse: boolean)
@@ -293,6 +311,7 @@ local Module = {}
 -- |
 -- LockerState:YieldUntilChangesSaved(): (WasSaved: boolean)
 -- LockerState:WhenChangesSaved(Callback): SavedConnection
+-- LockerState:IsAvailable(): boolean
 --
 -- type SavedConnection (used to detect when save data gets saved or reset)
 -- SavedConnection.Saved: boolean
@@ -525,9 +544,15 @@ end
 --
 
 export type LifecycleStatus =
-	-- Indicates LockerState.SaveData has been replaced with a new table for some
-	-- reason (see LifeCycle reason for ways this may happen). Beware that all
-	-- ChangeIds will be reset when this happens.
+	-- Indicates LockerState.SaveData has been overwritten with a new table for
+	-- some reason (see LifeCycle reason for ways this may happen). Beware that
+	-- all ChangeIds will be reset when this happens.
+	--
+	-- Note that this overwrite is a mutation on the SaveData table, so
+	-- LockerState.SaveData is safe to be statically referenced and it will
+	-- always be the most up-to-date data. (This guarantee is not made for its
+	-- fields or descendant tables however.)
+	--
 	| "replaced"
 
 	-- Indicates that SaveData is about to save. Can be used to write changes to
@@ -568,21 +593,23 @@ export type LifecycleReason =
 	| "none"
 
 	-- status = "replaced":
-	-- Indicates that save data was replaced with newly loaded save
+	-- Indicates that save data was overwritten (mutated) with newly loaded save
 	-- data.
 	| "r_loaded"
 
 	-- status = "replaced":
-	-- Indicates that the session was released willingly, so save data
-	-- was replaced with default template save data. The lock may be reaquired
-	-- automatically in the future. This reason will occur when the save data is
-	-- first created, as the release state is intentional here.
+	-- Indicates that the session was released willingly, so save data was
+	-- overwritten (mutated) with default template save data. The lock may be
+	-- reaquired automatically in the future. This reason will occur immediately
+	-- when the save data is first created, as the release state is intentional
+	-- here. Then afterwards it will happen when actual sessions are released.
 	| "r_released"
 
 	-- status = "replaced":
 	-- Indicates that the session lock was lost unwillingly (another server
 	-- probably stole the session lock). The lock may be reacquired automatically
-	-- in the future.
+	-- in the future. The save data was reset (mutated) to the default save
+	-- data.
 	--
 	-- This scenario should be extremely rare, however there are two ways it
 	-- could happen:
@@ -668,17 +695,42 @@ local function ToMySaveData(SD: any) return SD :: MySaveData end
 local function GetMySaveData(LS: SessionLocker.LockerState) return LS.SaveData :: MySaveData end
 
 --]]
--- You can also define a LockerSpec.Lifecycle function, which will be
--- called whenever LockerState.SaveData gets replaced by a new table. This can
--- store a correctly typed field somewhere, like:
+-- You can also just statically reference the LockerState.SaveData tables, as
+-- the module guarantees that the reference will always remain valid. (However,
+-- only the top level table reference will be maintained, so descendant
+-- tables/fields are liable to be cleared at any time.) This can be correctly
+-- typed.
 --[[
-
-LockerSpec.Lifecycle = function(LS) MySaveData[LS.UserId] = LS.SaveData end
-
+MyTypedSaveData[LS.UserId] = LS.SaveData
+--]]
+-- If you have more complicated things happening, you may need to define a
+-- LockerSpec.Lifecycle function to handle the "replaced" status which will be
+-- provided whenever LockerState.SaveData gets holistically
+-- cleared/replaced/overwritten by new data. (The table will reference will be
+-- maintained of course, but any of the data inside it may have changed
+-- arbitrarily.)
+--[[
+LockerSpec.Lifecycle = function(LS, Status)
+	if Status == "replaced" then
+		-- This kind of maintenance is unnecessary since the table reference is
+		-- static, but I'll leave it in for reference.
+		MyTypedSaveData[LS.UserId] = LS.SaveData
+		-- This is the more important part:
+		print("SAVE DATA WAS REPLACED WITH ENTIRELY DIFFERENT DATA! DO I NEED TO UPDATE ANYTHING?")
+	end
+end
 --]]
 -- Note that to clean this up you should clear any stored data when the
 -- LockerState itself gets cleaned up by your code after
 -- LockerState:SessionUpdate() indicates the LockerState should be removed.
+--[[
+if LockerState:SessionUpdate() then
+	-- Clean up the locker state.
+	LockerState_ByUserId[LS.UserId] = nil
+	-- Clean up stored references to save data.
+	MyTypedSaveData[LS.UserId] = nil
+end
+--]]
 --
 -- Finally, I also recommend having a separate ModuleScript for storing
 -- historical save data types, migrators, and patchers, isolated from the your
@@ -713,9 +765,23 @@ return {
 -- replication, changed signals, etc.
 --
 -- Reading and writing the save data is as easy as directly accessing the
--- LockerState.SaveData table. If you want to have your own stuff wrapped around
--- it, you can define your own getters/setters, and also define a
--- LockerState.Lifecycle callback to update the save data table.
+-- LockerState.SaveData table.
+--
+-- If you want to have your own stuff wrapped around it (e.g. to use more
+-- efficient data structures for the canonical save data), you can define your
+-- own getters/setters, and also define a LockerState.Lifecycle callback to
+-- update the save data table. However this approach is not recommended as it
+-- makes it harder to guarantee robustness and correct behavior for things like
+-- product purchases.
+--
+-- If you do wrap or clone the save data table, you should also be maintaining
+-- LockerState.IsSyncing so that it will be true only if your own code is
+-- guaranteed to sync save data changes to the LockerState before the next time
+-- the LockerState saves. If there is no guarantee that changes will be
+-- IsSyncing before saving, then this should be false. This is useful for
+-- systems that need to make sure important changes to save data (such as things
+-- related to monetization) are saved, for example the product processing
+-- helper which won't run unless IsSyncing is true.
 
 --
 -- // Modifying save data structure
@@ -1074,10 +1140,10 @@ function Module.GetRequestErrorKind(PcallMessage: string): RequestErrorKind
 			elseif FirstChar == "3" then
 				Result = "backend"
 			elseif FirstChar == "4" then
-				if ErrorCode == "404" then
-					Result = "misc"
-				else
+				if ErrorCode == "403" then
 					Result = "script"
+				else
+					Result = "misc"
 				end
 			elseif FirstChar == "5" then
 				local Lookup: {[string]: RequestErrorKind} = {
@@ -1289,6 +1355,14 @@ export type LockerState = {
 	-- fake players or want to temporarily turn of DataStore requests.
 	DisableAPIs: boolean?;
 
+	-- Indicates that the user's external save data state (which the user has
+	-- chosen to use as the canonical state for save data) is being kept in sync
+	-- with the LockerState's internal save data state. This means that before
+	-- the LockerState will save, the external save data state is guaranteed to
+	-- be applied to the LockerState's internal save data state.
+	-- So this field is written by the user, and read by the module or the user.
+	IsSyncing: boolean;
+
 	-- The presence of any entries in this table will trigger a session lock to
 	-- be acquired and maintained. When the table becomes empty, the session lock
 	-- will be subsequently released. This table is modified by
@@ -1393,6 +1467,11 @@ export type LockerState = {
 	--]]
 	YieldUntilChangesSaved: (LS: LockerState)->(boolean);
 
+	-- Returns true if the LockerState is in a condition where it is valid to
+	-- make modifications to save data and have a guarantee that they are
+	-- up-to-date and will be saved.
+	IsAvailable: (LS: LockerState)->(boolean);
+
 	ProductCreditQuery: (LS: LockerState, ProductId: number)->(number);
 	ProductCreditGive: (LS: LockerState, ProductId: number, Amount: number, UserData: any)->();
 	ProductCreditUse: (LS: LockerState, ProductId: number, Amount: number, UserData: any)->(boolean);
@@ -1459,6 +1538,19 @@ local function LS_TriggerAllSavedConnections(LS: LockerState, Succeded: boolean)
 	end
 end
 
+-- Replace canonical save data table with a new save table, mutating the
+-- canonical save data table so that it can be statically referenced by usage
+-- code without any weird gotchas.
+local function OverwriteSaveData(
+	CanonicalSaveData: SaveData,
+	NewSaveData: SaveData
+)
+	table.clear(CanonicalSaveData)
+	for Key, Value in NewSaveData :: any do
+		(CanonicalSaveData :: any)[Key] = Value
+	end
+end
+
 local function SessionReset(LS: LockerState, LifecycleReason: LifecycleReason)
 	local SLS = LS.SessionLoadState
 	if SLS then
@@ -1493,15 +1585,20 @@ local function SessionReset(LS: LockerState, LifecycleReason: LifecycleReason)
 
 	--[[ @DisableAPIs:ReplaceSaveData
 	-- Use default save data before anything has loaded.
-	LS.SaveData = UseSaveDataCreator(LS.LockerSpec, LS.LogPrefix)
+	if not LS.SaveData then
+		LS.SaveData = UseSaveDataCreator(LS.LockerSpec, LS.LogPrefix)
+	else
+		OverwriteSaveData(LS.SaveData, UseSaveDataCreator(LS.LockerSpec, LS.LogPrefix))
+	end
 	--]]
 	---[[ @DisableAPIs:MaintainSaveData
 	-- If DisableAPIs is enabled, the save data table should never get replaced
 	-- after it has been created for the first time.
-	if not LS.DisableAPIs or not LS.SaveData then
-
+	if not LS.SaveData then
 		-- Use default save data before anything has loaded.
 		LS.SaveData = UseSaveDataCreator(LS.LockerSpec, LS.LogPrefix)
+	elseif not LS.DisableAPIs then
+		OverwriteSaveData(LS.SaveData, UseSaveDataCreator(LS.LockerSpec, LS.LogPrefix))
 	end
 	--]]
 
@@ -1712,6 +1809,16 @@ function Module.LS_YieldUntilChangesSaved(LS: LockerState): boolean
 	return Saved
 end
 
+function Module.LS_IsAvailable(LS: LockerState): boolean
+	-- Checking both SessionState and LoadStatus should be unnecessary, since
+	-- they are kept in sync. However we check both just to be safe.
+	return if
+		LS.SessionState and
+		LS.LoadStatus == "loaded" and
+		LS.IsSyncing
+	then true else false
+end
+
 function Module.LS_ProductCreditQuery(
 	LS: LockerState,
 	ProductId: number
@@ -1808,6 +1915,7 @@ function Module.LockerCreate(
 	LS.InUse = {}
 	LS.IsIdling = false
 	LS.IsDeleted = false
+	LS.IsSyncing = true
 	SessionReset(LS, "r_released")
 
 	LS.SessionUpdate = Module.LS_SessionUpdate
@@ -1818,6 +1926,7 @@ function Module.LockerCreate(
 	LS.MarkForceSave = Module.LS_MarkForceSave
 	LS.WhenChangesSaved = Module.LS_WhenChangesSaved
 	LS.YieldUntilChangesSaved = Module.LS_YieldUntilChangesSaved
+	LS.IsAvailable = Module.LS_IsAvailable
 
 	LS.ProductCreditQuery = Module.LS_ProductCreditQuery
 	LS.ProductCreditGive = Module.LS_ProductCreditGive
@@ -2301,7 +2410,7 @@ local function PerformSessionLoad(
 						LS, LS.SaveData, SD)
 				end
 
-				LS.SaveData = SD
+				OverwriteSaveData(LS.SaveData, SD)
 				LS.SessionLoadState = nil
 
 				if LS.LockerSpec.Lifecycle then
@@ -2719,53 +2828,88 @@ export type ReceiptInfo = {
 -- beginning (instead of needing to derive information from scratch within
 -- ProcessReceipt).
 --
+-- The player's save data & session is used to decide when to call this
+-- function, so it should be able to run at any time, should have minimal
+-- side effects outside of the player's save data, and should be designed to
+-- handle repeated duplicate calls correctly. This function will be called as
+-- many times as necessary, such as when the purchasing player's LockerState
+-- releases its existing session then, being reused, acquires a new session.
+--
 export type ProductOp =
 
 	-- This operation is used when the caller wants to check if the product could
-	-- be applied, without actually applying it. The function should return true
-	-- if the product is able to be applied, or false otherwise. NOTE: This
-	-- module currently does not ever call this operation, but it is reserved for
-	-- future use, and it is probably a good idea for you to be using it in your
-	-- own code.
+	-- be applied, without actually applying it. (Relevant if the product can
+	-- only be applied in certain gameplay conditions.) The function should
+	-- return true if the product is able to be applied, or false otherwise.
+	--
+	-- For example, if the product is a gifting product, then it should only be
+	-- valid to apply if there is a valid target player being tracked alongside
+	-- the purchase. If the target player is missing, then this operation should
+	-- return false.
+	--
+	-- NOTE: This module currently does not ever use this operation, as it was
+	-- primarily intended to be used in your own code (as a way to early exit out
+	-- of a product purchasing flow, for example), because the "validate"
+	-- operation should already be part of the "apply" operation itself. In any
+	-- case, the module also reserves the right to call this in the future as
+	-- well.
+	--
 	| "validate"
 
 	-- This operation is used when the caller wants to apply the product. The
-	-- function should return true if the product is able to be applied, or false
-	-- otherwise.
-	--
-	-- The player's save data & session is used to decide when to call this
-	-- function, so it should be able to run at any time, should have minimal
-	-- side effects outside of the player's save data, and should be designed to
-	-- handle repeated duplicate calls correctly. This function will be called as
-	-- many times as necessary, such as when the purchasing player's LockerState
-	-- releases its existing session then, being reused, acquires a new session.
+	-- function should return true if the product was able to be applied, or
+	-- false otherwise.
 	---
 	-- If another LockerState is involved in the application of the product (e.g.
 	-- gifting something to another player), the function can also return the
 	-- other LockerState to prevent the purchase from being finalized until that
 	-- LockerState has been saved as well. This functionality is just a helper:
-	-- It should not be used for systems that need to support proper rollbacks,
-	-- and it works best with direct actions that only affect one player's save
-	-- data at a time (so not trading, giving items/currency to two players at
-	-- once, or inventory->inventory gifting). If you need proper rollbacks, you
-	-- should build your own system on top of this module. Note that if the
-	-- returned extra LockerState is not in a savable state when the processing
-	-- function is called (e.g. because it does not have an active session), then
-	-- it will be treated as if the function did not return the extra
-	-- LockerState at all, and a warning will be printed (because usage code
-	-- should be checking that itself). If the extra LockerState becomes
-	-- unavailable while the save is being waited on (e.g. an active session was
-	-- released), then the whole product processing pipeline will start again.
+	-- It is primarily designed for gifting, and should not be used for systems
+	-- that need to support proper rollbacks, and it works best with direct
+	-- actions that only affect ONE PLAYER'S SAVE DATA AT A TIME (so not trading,
+	-- giving items/currency to two players at once, or inventory->inventory
+	-- gifting). If you need proper rollbacks, you should build your own system
+	-- on top of this module.
+	--
+	-- Note that if the returned extra LockerState is not in a savable state when
+	-- the processing function is called (e.g. because it does not have an
+	-- active session, or has LockerState.IsSyncing == false), then it will be
+	-- treated as if the function did not return the extra LockerState at all,
+	-- and a warning will be printed (because usage code should be checking that
+	-- itself). So, it's possible the change being made to the other
+	-- LockerState's save data will not be saved.
+	--
+	-- If the extra LockerState becomes unavailable while the save is
+	-- being waited on (e.g. an active session was released), then the whole
+	-- product processing pipeline will need to start again.
+	--
 	| "apply"
+
+	-- This operation can be used to record unique, guaranteed, one-time
+	-- information about a purchase. It should not depend on gameplay state, and
+	-- by it's nature it cannot fail. Return values will be ignored. An example
+	-- use case of this is to track the total amount of robux a player has spent.
+	-- This will always be called last. Even if the "apply" operation returns an
+	-- extra LockerState to save, this "record" operation will only ever be
+	-- called once since it only cares whether it got stored on the purchaser's
+	-- LockerState. (It can still be called multiple times in total, the number
+	-- of times it will be called is potentially fewer than the number of times
+	-- the apply operation is called.) In short: #validate calls >= #apply calls
+	-- (based on up to two LSs saving) >= #record calls (based on only one LS
+	-- saving).
+	| "record"
+
 
 -- e.g. Good, robust processor function (a "buy money for your friend" product):
 --[[
 function(Op, UserData)
 	local Success = false
 	local TargetLS = LS_ByPlayer[UserData.GiftingToPlayer]
+	-- A helper to check these conditions is TargetLS:IsAvailable()
 	if TargetLS and
 		TargetLS.SessionState and
-		TargetLS.LoadStatus == "loaded"
+		TargetLS.LoadStatus == "loaded" and
+		TargetLS.IsSyncing
 	then
 		if Op == "apply" then
 			TargetLS.SaveData.Money += 10
@@ -3030,10 +3174,7 @@ function Module.PP_Update(PP: ProductPurchaser)
 				-- If we are not ready to start processing product purchases yet
 				-- then we just have to wait. We can only process products when
 				-- we are working with real save data.
-				elseif
-					(not LS.SessionState) or
-					(LS.LoadStatus ~= "loaded")
-				then
+				elseif not LS:IsAvailable() then
 					break
 
 				-- We're now ready to attempt to process the product.
@@ -3082,9 +3223,7 @@ function Module.PP_Update(PP: ProductPurchaser)
 							Module.LS_ProductCreditGive(LS, ProductId, 1)
 
 						elseif ExtraLS and ExtraLS ~= LS then
-							if (not ExtraLS.SessionState) or
-								(ExtraLS.LoadStatus ~= "loaded")
-							then
+							if not ExtraLS:IsAvailable() then
 								warn(("SessionLocker ProductProcessFunction issue: Results of process function for product ID \"%s\" may not be saved because the additional LockerState was not in a savable state (the LockerState may have already released its session, or may not have acquired a session yet)."):format(tostring(ProductId)))
 							else
 								WaitForLSs[#WaitForLSs+1] = ExtraLS
@@ -3095,6 +3234,9 @@ function Module.PP_Update(PP: ProductPurchaser)
 						-- Add the product to purchase history.
 						if ExistingPurchaseIndex then
 							table.remove(Purchases, ExistingPurchaseIndex)
+						else
+							PPP.ProcessFunction(
+								"record", PPP.UserData, ProductId, PPP.ReceiptInfo, LS)
 						end
 						local Limit = Module.QueryConfig(
 							LS.LockerSpec.PurchaseHistoryLimit,
@@ -3719,6 +3861,7 @@ export type EasyProfile = {
 	)->(SavedConnection);
 	--]]
 	YieldUntilChangesSaved: (EP: EasyProfile)->(boolean);
+	IsAvailable: (EP: EasyProfile)->(boolean);
 
 	ProductCreditQuery: (EP: EasyProfile, ProductId: number)->(number);
 	ProductCreditGive: (EP: EasyProfile, ProductId: number, Amount: number, UserData: any)->();
@@ -4159,6 +4302,7 @@ local function EP_Init(EP: EasyProfile)
 	EP.MarkShouldSave = Module.EP_MarkShouldSave
 	EP.WhenChangesSaved = Module.EP_WhenChangesSaved
 	EP.YieldUntilChangesSaved = Module.EP_YieldUntilChangesSaved
+	EP.IsAvailable = Module.EP_IsAvailable
 
 	EP.ProductCreditQuery = Module.EP_ProductCreditQuery
 	EP.ProductCreditGive = Module.EP_ProductCreditGive
@@ -4413,6 +4557,10 @@ function Module.EP_YieldUntilChangesSaved(EP: EasyProfile): boolean
 		Saved = Module.LS_YieldUntilChangesSaved(EP.ELS)
 	end
 	return Saved
+end
+
+function Module.EP_IsAvailable(EP: EasyProfile): boolean
+	return if not EP.IsActive then false else Module.LS_IsAvailable(EP.ELS)
 end
 
 function Module.EP_ProductCreditQuery(
