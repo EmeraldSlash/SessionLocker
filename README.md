@@ -17,7 +17,6 @@ Future plans:
 - Make the session locking core cleanly separated from all the extra stuff.
   - Some progress has been made on this, but two things remain: version migration, and handling of what fields are in the save data table. We can make an API to do version migration in the transform function callback, and do version migration outside of it as well. Handling of save data fields is more difficult because it is a tradeoff between convenience and robustness. The more dynamic we are, the less robust it is and the more room for error there is. The less dynamic we are, we either up redundantly storing unnecessary fields in the table which some users might not like, or we make them optional fields which has bad UX for the programmer. I think we will have to go with the dynamic approach, though, that's really the direction this library is heading.
 - Need to provide examples of compression/serialization can be used with the new BeforeSaving() callback.
-- Update the GetRequestErrorKind() function to support all the new error codes provided by roblox docs
 - Make a big upgrade of the library that merges the full and easy APIs. Most of the distinctions are unnecessary, or can achieved using a single type.
 	- Remove LockerSpecs since they are kinda mid, it's probably better to specify full configuration for each player uniquely, with a composable way to reuse configuration tables if desired.
 - Find ways to make typechecking a little more convenient. It's pretty good right now, but there are still two big annoyances which I'd like to resolve:
